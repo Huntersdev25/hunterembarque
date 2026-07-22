@@ -1,0 +1,204 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mobile optimization styles */
+@layer base {
+  /* Optimize touch targets for mobile */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Better font rendering on mobile */
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  
+  /* Prevent zoom on input focus on iOS */
+  input[type="text"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="password"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+  
+  /* Better scrolling on mobile */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Base colors - Modern Clean Theme */
+    --background: 0 0% 100%;
+    --foreground: 224 15% 20%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 224 15% 20%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 224 15% 20%;
+
+    /* Primary - Modern Navy Blue */
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Soft Gray */
+    --secondary: 214 32% 91%;
+    --secondary-foreground: 224 15% 20%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    /* Accent - Bright Blue */
+    --accent: 213 94% 68%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 217 91% 60%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    /* Maritime Modern Colors */
+    --maritime-blue: 217 91% 60%;
+    --maritime-navy: 221 83% 53%;
+    --maritime-dark: 222 47% 11%;
+    --maritime-light: 213 94% 68%;
+    --maritime-gold: 45 93% 58%;
+    --maritime-silver: 215 16% 47%;
+    --ocean-mist: 210 40% 98%;
+    --wave-foam: 214 32% 91%;
+
+    /* Gradients - Subtle and Modern */
+    --gradient-maritime: linear-gradient(135deg, hsl(var(--maritime-blue)) 0%, hsl(var(--maritime-light)) 100%);
+    --gradient-ocean: linear-gradient(180deg, hsl(var(--ocean-mist)) 0%, hsl(var(--background)) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+    
+    /* Shadows - Soft and elevated */
+    --shadow-maritime: 0 4px 12px 0 hsl(var(--primary) / 0.1);
+    --shadow-card: 0 1px 3px 0 hsl(224 15% 20% / 0.1);
+    --shadow-elevated: 0 10px 25px -5px hsl(var(--primary) / 0.15);
+    
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    --radius: 0.75rem;
+
+    /* Sidebar - Clean and Modern */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 224 15% 20%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 224 15% 20%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 217 91% 60%;
+  }
+
+  .dark {
+    /* Dark mode - Deep Navy Theme */
+    --background: 220 85% 8%;
+    --foreground: 0 0% 98%;
+
+    --card: 220 80% 12%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 220 80% 12%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 210 90% 55%;
+    --primary-foreground: 220 85% 8%;
+
+    --secondary: 215 60% 35%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 220 60% 18%;
+    --muted-foreground: 210 15% 65%;
+
+    --accent: 210 90% 55%;
+    --accent-foreground: 220 85% 8%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 60% 20%;
+    --input: 220 60% 20%;
+    --ring: 210 90% 55%;
+
+    --sidebar-background: 220 85% 10%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 210 90% 55%;
+    --sidebar-primary-foreground: 220 85% 8%;
+    --sidebar-accent: 220 70% 18%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 220 60% 20%;
+    --sidebar-ring: 210 90% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  
+  /* Reduzir duração de animações não-essenciais para acelerar */
+  .animate-fade-in,
+  .animate-fade-out,
+  .animate-scale-in,
+  .animate-scale-out {
+    animation-duration: 0.1s !important;
+  }
+  
+  /* Transições rápidas em elementos interativos */
+  button:not([data-state]),
+  a:not([data-state]),
+  input,
+  select,
+  textarea {
+    transition-duration: 0.1s !important;
+  }
+}
+/* Utilitário: esconder a barra de rolagem (ex.: chips de categoria) */
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

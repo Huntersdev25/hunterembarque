@@ -1,0 +1,1 @@
+UPDATE public.system_webhooks SET webhook_url = 'https://n8n-n8n.ooqqkc.easypanel.host/webhook-test/20da9264-69f2-48bf-ab22-18e676fc8aa6', updated_at = now() WHERE webhook_key = 'notify-webhook';
