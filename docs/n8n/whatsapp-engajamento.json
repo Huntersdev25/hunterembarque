@@ -1,0 +1,713 @@
+{
+  "name": "WhatsApp · Plataforma de Engajamento (Evolution API)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🚚 RAIA A — SENDER (o carteiro)\n\nÚnico ponto que fala com o WhatsApp, via **Evolution API**. Roda a cada 2 min, pega um lote pequeno e envia devagar.\n\n**O número do destinatário vem do Supabase**: `message_outbox.phone`, que a função `enqueue_message()` resolveu de `profiles.phone` e normalizou com DDI 55.\n\n**Todas as regras anti-ban estão em `claim_outbox_batch()`**: janela comercial, fim de semana, teto/hora, warm-up diário, gap por número e opt-out. Se não é hora de enviar, retorna 0 linhas e o fluxo para.",
+        "height": 480,
+        "width": 1780,
+        "color": 4
+      },
+      "id": "note-a",
+      "name": "Nota A",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-700, 40]
+    },
+    {
+      "parameters": {
+        "content": "## 👋 RAIA B — Produtor #1: BOAS-VINDAS\n\nDisparado pelo signup (via `notify-webhook`). A função SQL busca o telefone do perfil, agenda para **10–40 min depois** (SLA médio) e faz dedup por profile_id.",
+        "height": 300,
+        "width": 760,
+        "color": 5
+      },
+      "id": "note-b",
+      "name": "Nota B",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-700, 560]
+    },
+    {
+      "parameters": {
+        "content": "## 📜 RAIA C — Produtor #2: CERTIFICADOS\n\nDiário. Reaproveita a edge function `check-certificate-alerts` (que **já existe**) para popular `certificate_alerts`, depois enfileira os que têm `notified_at IS NULL`.",
+        "height": 300,
+        "width": 760,
+        "color": 3
+      },
+      "id": "note-c",
+      "name": "Nota C",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-700, 880]
+    },
+    {
+      "parameters": {
+        "content": "## ⏳ RAIA D — Produtor #3: CADASTRO ABANDONADO\n\nDe hora em hora. Pega quem iniciou a trilha, passou de 24h e não concluiu. Máx. 5 lembretes, respeitando 3 dias entre eles.",
+        "height": 260,
+        "width": 760,
+        "color": 6
+      },
+      "id": "note-d",
+      "name": "Nota D",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-700, 1200]
+    },
+    {
+      "parameters": {
+        "content": "## 🚢 RAIA E — Produtor #5: VAGAS POR FUNÇÃO\n\nDisparado quando uma vaga é ativada. Filtro duro: **mesma função E perfil completo E sem opt-out**. Espalha os envios em até 8h.",
+        "height": 300,
+        "width": 760,
+        "color": 7
+      },
+      "id": "note-e",
+      "name": "Nota E",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-700, 1480]
+    },
+    {
+      "parameters": {
+        "content": "## 🛑 RAIA F — OPT-OUT (LGPD)\n\nWebhook `messages.upsert` da Evolution API. Se o profissional responder **SAIR**, marca `whatsapp_opt_out` e cancela tudo que estava na fila para ele.\n\nIgnora mensagens enviadas por nós (`fromMe`).\n\n⚠️ Obrigatório já na Fase 1.",
+        "height": 340,
+        "width": 760,
+        "color": 2
+      },
+      "id": "note-f",
+      "name": "Nota F",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-700, 1800]
+    },
+
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 2 }
+          ]
+        }
+      },
+      "id": "sender-trigger",
+      "name": "A cada 2 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-640, 280]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c1",
+              "name": "evolution_base_url",
+              "value": "https://sua-evolution-api.com",
+              "type": "string"
+            },
+            {
+              "id": "c2",
+              "name": "evolution_instance",
+              "value": "hunters",
+              "type": "string"
+            },
+            {
+              "id": "c3",
+              "name": "evolution_apikey",
+              "value": "COLE_SUA_APIKEY_EVOLUTION",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "sender-config",
+      "name": "Config Evolution",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-420, 280],
+      "notes": "base_url SEM barra no final. instance = nome da instância criada na Evolution. apikey = a global (AUTHENTICATION_API_KEY) ou a da instância."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.requeue_stuck_messages() AS requeued;",
+        "options": {}
+      },
+      "id": "sender-unstick",
+      "name": "Destravar presas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-200, 280],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "Devolve à fila mensagens travadas em 'sending' há +15 min (ex.: n8n caiu no meio do envio)."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM public.claim_outbox_batch();",
+        "options": {}
+      },
+      "id": "sender-claim",
+      "name": "Reservar lote",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [20, 280],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "Claim atômico (FOR UPDATE SKIP LOCKED): dois Senders nunca pegam a mesma mensagem. Cada linha traz phone (do Supabase) e body (já renderizado)."
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "sender-loop",
+      "name": "Loop 1 por vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [240, 280],
+      "notes": "Uma mensagem por iteração — nada de rajada."
+    },
+    {
+      "parameters": {},
+      "id": "sender-done",
+      "name": "Fim do lote",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [460, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config Evolution').first().json.evolution_base_url }}/message/sendText/{{ $('Config Evolution').first().json.evolution_instance }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Config Evolution').first().json.evolution_apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.phone, text: $json.body }) }}",
+        "options": { "timeout": 20000 }
+      },
+      "id": "sender-send",
+      "name": "Enviar via Evolution",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 360],
+      "onError": "continueErrorOutput",
+      "notes": "Evolution API v2 · POST /message/sendText/{instance} · header apikey · body { number, text }. number vem do Supabase (message_outbox.phone, com DDI). Saída 1 = sucesso · Saída 2 = erro."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.mark_message_sent($1::uuid, $2::text);",
+        "options": {
+          "queryReplacement": "={{ $('Loop 1 por vez').item.json.id }},{{ String($json.key?.id || $json.id || '').replace(/,/g,'') }}"
+        }
+      },
+      "id": "sender-mark-sent",
+      "name": "Marcar enviada",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 280],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "Guarda o id da mensagem da Evolution (resposta: key.id) para rastreio."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.mark_message_failed($1::uuid, $2::text);",
+        "options": {
+          "queryReplacement": "={{ $('Loop 1 por vez').item.json.id }},{{ String($json.error?.message || $json.error || 'falha no envio').replace(/,/g,';').slice(0,300) }}"
+        }
+      },
+      "id": "sender-mark-failed",
+      "name": "Marcar falha",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [700, 460],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "A função SQL reagenda com backoff exponencial (3^n min) até max_attempts; depois marca 'failed'."
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.floor(Math.random() * 28) + 8 }}",
+        "unit": "seconds"
+      },
+      "id": "sender-jitter",
+      "name": "Jitter humano",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [940, 360],
+      "webhookId": "aa000000-0000-4000-8000-0000000000aa",
+      "notes": "Espera aleatória de 8 a 35s entre envios — quebra o padrão robótico."
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-boas-vindas",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "welcome-webhook",
+      "name": "Webhook · signup",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-640, 700],
+      "webhookId": "bb000000-0000-4000-8000-0000000000bb",
+      "notes": "Cadastre esta URL em system_webhooks (webhook_key='wa-boas-vindas'). Payload esperado: { data: { profile_id } }."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "w1",
+              "leftValue": "={{ $json.body.data.profile_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "welcome-if",
+      "name": "Tem profile_id?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-420, 700]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.enqueue_welcome($1::uuid) AS outbox_id;",
+        "options": {
+          "queryReplacement": "={{ $json.body.data.profile_id }}"
+        }
+      },
+      "id": "welcome-enqueue",
+      "name": "Enfileirar boas-vindas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-200, 660],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "A função busca profiles.phone, normaliza (DDI 55) e grava na fila. Se o perfil não tiver telefone ou estiver em opt-out, não enfileira nada."
+    },
+    {
+      "parameters": {},
+      "id": "welcome-skip",
+      "name": "Ignorar signup",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [-200, 800]
+    },
+
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "days", "triggerAtHour": 8, "triggerAtMinute": 12 }
+          ]
+        }
+      },
+      "id": "cert-trigger",
+      "name": "Diário 08:12",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-640, 1020],
+      "notes": "Minuto fora do :00 de propósito."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "supabase_url",
+              "value": "https://augeppwihhzibvhzibxe.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "s2",
+              "name": "service_role_key",
+              "value": "COLE_SUA_SERVICE_ROLE_KEY",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cert-config",
+      "name": "Config Supabase",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-420, 1020],
+      "notes": "⚠️ SERVICE ROLE KEY é secreta — prefira credencial/variável do n8n em vez de texto puro."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.supabase_url }}/functions/v1/check-certificate-alerts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.service_role_key }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "cert-recalc",
+      "name": "Recalcular alertas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-200, 1020],
+      "onError": "continueRegularOutput",
+      "notes": "Se falhar, seguimos mesmo assim com os alertas já existentes."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.enqueue_certificate_alerts() AS enfileiradas;",
+        "options": {}
+      },
+      "id": "cert-enqueue",
+      "name": "Enfileirar alertas cert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [20, 1020],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "Prioridade por gravidade: vencido(10) > 7d(20) > 15d(30) > 30d(40)."
+    },
+
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "hours", "hoursInterval": 1 }
+          ]
+        }
+      },
+      "id": "aband-trigger",
+      "name": "De hora em hora",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-640, 1320]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.enqueue_abandoned_onboarding() AS enfileiradas;",
+        "options": {}
+      },
+      "id": "aband-enqueue",
+      "name": "Enfileirar abandono",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-420, 1320],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "Iniciou a trilha (onboarding_step>0), >24h, não concluiu. Máx 5 lembretes, 3 dias entre eles."
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-vaga-ativada",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "job-webhook",
+      "name": "Webhook · vaga ativada",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-640, 1620],
+      "webhookId": "cc000000-0000-4000-8000-0000000000cc",
+      "notes": "Cadastre em system_webhooks (webhook_key='wa-vaga-ativada'). Payload: { data: { job_id } }."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "j1",
+              "leftValue": "={{ $json.body.data.job_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "job-if",
+      "name": "Tem job_id?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-420, 1620]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.enqueue_job_matches($1::uuid) AS enfileiradas;",
+        "options": {
+          "queryReplacement": "={{ $json.body.data.job_id }}"
+        }
+      },
+      "id": "job-enqueue",
+      "name": "Enfileirar vagas",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-200, 1580],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "Filtro duro: desired_function = function_name E is_profile_complete E não opt-out. Cada match vira uma linha na fila com o telefone daquele perfil. Dedup (job,profile)."
+    },
+    {
+      "parameters": {},
+      "id": "job-skip",
+      "name": "Ignorar vaga",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [-200, 1720]
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-inbound",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "in-webhook",
+      "name": "Webhook · msg recebida",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-640, 1960],
+      "webhookId": "dd000000-0000-4000-8000-0000000000dd",
+      "notes": "Configure na Evolution API: Webhook → eventos MESSAGES_UPSERT apontando para esta URL."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "i1",
+              "name": "phone",
+              "value": "={{ String($json.body.data?.key?.remoteJid || '').split('@')[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "i2",
+              "name": "texto",
+              "value": "={{ String($json.body.data?.message?.conversation ?? $json.body.data?.message?.extendedTextMessage?.text ?? '').trim().toUpperCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "i3",
+              "name": "from_me",
+              "value": "={{ $json.body.data?.key?.fromMe === true }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "in-extract",
+      "name": "Extrair telefone e texto",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-420, 1960],
+      "notes": "Evolution: data.key.remoteJid = '5521999999999@s.whatsapp.net'. Texto pode vir em message.conversation ou message.extendedTextMessage.text."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "o1",
+              "leftValue": "={{ $json.from_me }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "false", "singleValue": true }
+            },
+            {
+              "id": "o2",
+              "leftValue": "={{ $json.texto }}",
+              "rightValue": "SAIR",
+              "operator": { "type": "string", "operation": "contains" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "in-if",
+      "name": "Disse SAIR?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-200, 1960],
+      "notes": "Ignora o que nós mesmos enviamos (fromMe) e só age em quem escreveu SAIR."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.wa_handle_optout($1::text) AS perfis_atualizados;",
+        "options": {
+          "queryReplacement": "={{ $json.phone }}"
+        }
+      },
+      "id": "in-optout",
+      "name": "Aplicar opt-out",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [20, 1920],
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase Postgres" }
+      },
+      "notes": "Casa o número recebido com profiles.phone (ambos normalizados), marca opt-out e CANCELA a fila daquele número."
+    },
+    {
+      "parameters": {},
+      "id": "in-skip",
+      "name": "Ignorar mensagem",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [20, 2060],
+      "notes": "Fase 2: aqui entra o chatbot IA em vez do NoOp."
+    }
+  ],
+  "connections": {
+    "A cada 2 min": {
+      "main": [[{ "node": "Config Evolution", "type": "main", "index": 0 }]]
+    },
+    "Config Evolution": {
+      "main": [[{ "node": "Destravar presas", "type": "main", "index": 0 }]]
+    },
+    "Destravar presas": {
+      "main": [[{ "node": "Reservar lote", "type": "main", "index": 0 }]]
+    },
+    "Reservar lote": {
+      "main": [[{ "node": "Loop 1 por vez", "type": "main", "index": 0 }]]
+    },
+    "Loop 1 por vez": {
+      "main": [
+        [{ "node": "Fim do lote", "type": "main", "index": 0 }],
+        [{ "node": "Enviar via Evolution", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar via Evolution": {
+      "main": [
+        [{ "node": "Marcar enviada", "type": "main", "index": 0 }],
+        [{ "node": "Marcar falha", "type": "main", "index": 0 }]
+      ]
+    },
+    "Marcar enviada": {
+      "main": [[{ "node": "Jitter humano", "type": "main", "index": 0 }]]
+    },
+    "Marcar falha": {
+      "main": [[{ "node": "Jitter humano", "type": "main", "index": 0 }]]
+    },
+    "Jitter humano": {
+      "main": [[{ "node": "Loop 1 por vez", "type": "main", "index": 0 }]]
+    },
+
+    "Webhook · signup": {
+      "main": [[{ "node": "Tem profile_id?", "type": "main", "index": 0 }]]
+    },
+    "Tem profile_id?": {
+      "main": [
+        [{ "node": "Enfileirar boas-vindas", "type": "main", "index": 0 }],
+        [{ "node": "Ignorar signup", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Diário 08:12": {
+      "main": [[{ "node": "Config Supabase", "type": "main", "index": 0 }]]
+    },
+    "Config Supabase": {
+      "main": [[{ "node": "Recalcular alertas", "type": "main", "index": 0 }]]
+    },
+    "Recalcular alertas": {
+      "main": [[{ "node": "Enfileirar alertas cert", "type": "main", "index": 0 }]]
+    },
+
+    "De hora em hora": {
+      "main": [[{ "node": "Enfileirar abandono", "type": "main", "index": 0 }]]
+    },
+
+    "Webhook · vaga ativada": {
+      "main": [[{ "node": "Tem job_id?", "type": "main", "index": 0 }]]
+    },
+    "Tem job_id?": {
+      "main": [
+        [{ "node": "Enfileirar vagas", "type": "main", "index": 0 }],
+        [{ "node": "Ignorar vaga", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Webhook · msg recebida": {
+      "main": [[{ "node": "Extrair telefone e texto", "type": "main", "index": 0 }]]
+    },
+    "Extrair telefone e texto": {
+      "main": [[{ "node": "Disse SAIR?", "type": "main", "index": 0 }]]
+    },
+    "Disse SAIR?": {
+      "main": [
+        [{ "node": "Aplicar opt-out", "type": "main", "index": 0 }],
+        [{ "node": "Ignorar mensagem", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "executionTimeout": 900
+  },
+  "pinData": {}
+}

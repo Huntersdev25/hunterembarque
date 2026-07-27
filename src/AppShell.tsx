@@ -18,6 +18,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const SecureCreateAdmin = lazy(() => import("./pages/SecureCreateAdmin"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const CandidateDashboard = lazy(() => import("./pages/CandidateDashboard"));
+const CandidateChat = lazy(() => import("./pages/CandidateChat"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const AdminJobs = lazy(() => import("./pages/AdminJobs"));
 const AdminCandidates = lazy(() => import("./pages/AdminCandidates"));
@@ -110,8 +111,9 @@ export default function AppShell() {
                     <Route path="/create-first-ti" element={<CreateFirstTIUser />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/cadastro" element={<ProtectedRoute skipOnboardingGate><Onboarding /></ProtectedRoute>} />
-                    <Route path="/candidate" element={<ProtectedRoute><CandidateDashboard /></ProtectedRoute>} />
-                    <Route path="/dashboard" element={<ProtectedRoute><CandidateDashboard /></ProtectedRoute>} />
+                    <Route path="/candidate" element={<ProtectedRoute><CandidateChat /></ProtectedRoute>} />
+                    <Route path="/dashboard" element={<ProtectedRoute><CandidateChat /></ProtectedRoute>} />
+                    <Route path="/painel" element={<ProtectedRoute><CandidateDashboard /></ProtectedRoute>} />
                     <Route path="/profile" element={<ProtectedRoute><CandidateProfile /></ProtectedRoute>} />
                     <Route path="/settings" element={<ProtectedRoute><CandidateSettings /></ProtectedRoute>} />
                     <Route path="/applications" element={<ProtectedRoute><CandidateApplications /></ProtectedRoute>} />
