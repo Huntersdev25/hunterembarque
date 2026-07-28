@@ -147,7 +147,7 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-maritime-mist">
+    <div className="flex min-h-screen min-h-[100dvh] flex-col bg-maritime-mist">
       {/* Cabeçalho (fixo no topo para "Sair" sempre acessível) */}
       <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b bg-card px-4 sm:px-6">
         <div className="flex items-center gap-2">

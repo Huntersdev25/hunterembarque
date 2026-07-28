@@ -262,7 +262,7 @@ export default function CandidateChat() {
 
   return (
     <DashboardLayout userType="candidate">
-      <div className="flex h-[calc(100dvh-6.5rem)] min-h-[520px] w-full flex-col gap-4 px-2 py-2 sm:px-0">
+      <div className="flex h-[calc(100vh-6.5rem)] h-[calc(100dvh-6.5rem)] min-h-[520px] w-full flex-col gap-4 px-2 py-2 sm:px-0">
         {/* Header */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-maritime-blue via-maritime-navy to-slate-900 p-4 sm:p-5">
           <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-cyan-400/20 blur-3xl" />

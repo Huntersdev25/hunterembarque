@@ -33,11 +33,17 @@ export default defineConfig(() => ({
     minify: 'esbuild',
     cssMinify: true,
     chunkSizeWarningLimit: 1000,
-    target: 'esnext',
+    // Alvos compatíveis com Safari do iOS (esnext gerava JS que o iPhone não parseava → tela branca).
+    target: ['es2019', 'safari12', 'chrome80', 'firefox72', 'edge79'],
+    // Polyfill de modulepreload restaurado p/ Safari sem suporte nativo.
     modulePreload: {
-      polyfill: false,
+      polyfill: true,
     },
     reportCompressedSize: false,
+  },
+  esbuild: {
+    // Garante que o transform final também respeite os alvos legados.
+    target: 'es2019',
   },
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom'],
