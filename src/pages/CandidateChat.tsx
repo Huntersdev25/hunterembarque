@@ -4,25 +4,33 @@
  * Conversa sobre o perfil, certificações e vagas ativas (com elegibilidade
  * calculada). Reaproveita a edge function `profile-chat` (streaming SSE) e as
  * mesmas queries do dashboard clássico, que continua acessível em /painel.
+ *
+ * Visual inspirado no Claude: coluna centrada, texto do assistente sem "balão",
+ * fundo neutro quente, mensagens do usuário em bolha suave, input limpo.
  */
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { DashboardLayout } from "@/components/ui/dashboard-layout";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Anchor, Navigation, Bot, Send, User, Sparkles, LayoutDashboard,
-  ShieldCheck, AlertTriangle, XCircle, Briefcase, Loader2, RefreshCw,
+  Anchor, Send, User, LayoutDashboard, Sparkles, Loader2, Plus,
 } from "lucide-react";
+
+/* ------------------------------------------------------------------ */
+/* Config (fallback p/ produção onde as VITE_* podem não estar setadas) */
+/* ------------------------------------------------------------------ */
+const SUPA_URL =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
+  "https://augeppwihhzibvhzibxe.supabase.co";
+const SUPA_KEY =
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1Z2VwcHdpaGh6aWJ2aHppYnhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0ODA4NDUsImV4cCI6MjA2OTA1Njg0NX0.8RUaODHeXMdRmFSRMaAoWuhnUdH7G0yCLQukqpDdD7w";
 
 /* ------------------------------------------------------------------ */
 /* Tipos                                                               */
 /* ------------------------------------------------------------------ */
-
 interface Message { role: "user" | "assistant"; content: string }
 
 const CERTS: { name: string; label: string; fullName: string }[] = [
@@ -55,10 +63,10 @@ const CERTS: { name: string; label: string; fullName: string }[] = [
 ];
 
 const SUGGESTIONS = [
-  { icon: ShieldCheck, text: "Quais certificações preciso renovar?" },
-  { icon: Briefcase, text: "Quais vagas ativas combinam comigo?" },
-  { icon: User, text: "O que falta para completar meu perfil?" },
-  { icon: Anchor, text: "Como melhorar minha prontidão para embarque?" },
+  "Quais vagas ativas combinam comigo?",
+  "Quais certificações preciso renovar?",
+  "O que falta para completar meu perfil?",
+  "Como melhorar minha prontidão para embarque?",
 ];
 
 /* ------------------------------------------------------------------ */
@@ -67,7 +75,6 @@ export default function CandidateChat() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [context, setContext] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
 
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
@@ -83,7 +90,7 @@ export default function CandidateChat() {
 
   /* ----- carregar contexto ----- */
   const fetchContext = useCallback(async () => {
-    if (!user) { setLoading(false); return; }   // sem usuário: não trava no spinner
+    if (!user) { setLoading(false); return; }
     setLoading(true);
     try {
       const [prof, cert, jobsRes, appsRes] = await Promise.all([
@@ -98,7 +105,6 @@ export default function CandidateChat() {
       const today = new Date();
       const soon = new Date(today.getTime() + 30 * 864e5);
 
-      // certificações que o profissional possui
       const held = CERTS.filter((k) => c[k.name]).map((k) => {
         const validity = c[`${k.name}_validity`] as string | null;
         const indet = c[`${k.name}_indeterminate`] as boolean | null;
@@ -116,7 +122,6 @@ export default function CandidateChat() {
       });
       const heldValidLabels = new Set(held.filter((h) => !h.isExpired).map((h) => h.label));
 
-      // completude do perfil
       const fields = ["full_name", "email", "phone", "birth_date", "cpf", "cep", "street",
         "neighborhood", "city", "state", "desired_function", "professional_experience"];
       const filled = fields.filter((f) => p[f] && String(p[f]).trim() !== "").length;
@@ -124,7 +129,6 @@ export default function CandidateChat() {
 
       const appliedIds = new Set((appsRes.data ?? []).map((a: any) => a.job_id));
 
-      // vagas ativas + elegibilidade por função e certificações
       const jobs = (jobsRes.data ?? []).map((j: any) => {
         const req: string[] = Array.isArray(j.required_certifications_list)
           ? j.required_certifications_list
@@ -144,7 +148,6 @@ export default function CandidateChat() {
         title: a.job?.title ?? "—", status: a.status, appliedAt: a.applied_at,
       }));
 
-      setProfile(p);
       setContext({
         name: p.full_name ?? "Profissional",
         firstName: (p.full_name ?? "Profissional").split(" ")[0],
@@ -164,7 +167,6 @@ export default function CandidateChat() {
         eligibleJobs: jobs.filter((j: any) => j.eligible && !j.alreadyApplied).length,
       });
     } catch (err) {
-      // Falha ao carregar dados não pode travar a tela — usa um contexto mínimo
       console.error("Erro ao carregar contexto do chat:", err);
       setContext((prev: any) => prev ?? {
         name: "Profissional", firstName: "Profissional",
@@ -188,21 +190,19 @@ export default function CandidateChat() {
 
   /* ----- envio + streaming ----- */
   const send = async (text: string) => {
-    if (!text.trim() || isStreaming || !context) return;
+    if (!text.trim() || isStreaming) return;
     const userMsg: Message = { role: "user", content: text.trim() };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    if (inputRef.current) inputRef.current.style.height = "auto";
     setIsStreaming(true);
     let soFar = "";
 
     try {
-      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/profile-chat`, {
+      const resp = await fetch(`${SUPA_URL}/functions/v1/profile-chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({ messages: [...messages, userMsg], profileContext: context }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPA_KEY}` },
+        body: JSON.stringify({ messages: [...messages, userMsg], profileContext: context ?? {} }),
       });
       if (!resp.ok || !resp.body) {
         const err = await resp.json().catch(() => ({}));
@@ -248,193 +248,162 @@ export default function CandidateChat() {
     }
   };
 
-  const clearChat = () => {
+  const newChat = () => {
     setMessages([]);
     localStorage.removeItem("candidate-chat-history");
   };
 
-  const initials = useMemo(() => {
-    const n = profile?.full_name ?? "";
-    return n.split(" ").map((x: string) => x[0]).slice(0, 2).join("").toUpperCase() || "U";
-  }, [profile]);
+  const autosize = (el: HTMLTextAreaElement) => {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+  };
 
   const cs = context?.certSummary ?? { active: 0, expiring: 0, expired: 0 };
+  const empty = messages.length === 0;
 
   return (
     <DashboardLayout userType="candidate">
-      <div className="flex h-[calc(100vh-6.5rem)] h-[calc(100dvh-6.5rem)] min-h-[520px] w-full flex-col gap-4 px-2 py-2 sm:px-0">
-        {/* Header */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-maritime-blue via-maritime-navy to-slate-900 p-4 sm:p-5">
-          <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-cyan-400/20 blur-3xl" />
-          <div className="relative flex items-center gap-4">
-            <div className="relative">
-              <div className="absolute -inset-0.5 rounded-full bg-gradient-to-r from-cyan-400 to-violet-500 opacity-60 blur" />
-              <Avatar className="relative h-14 w-14 border-2 border-white/20">
-                <AvatarImage src={profile?.avatar_url || ""} />
-                <AvatarFallback className="bg-white/10 text-white font-bold">{initials}</AvatarFallback>
-              </Avatar>
+      <div className="flex h-[calc(100vh-6.5rem)] h-[calc(100dvh-6.5rem)] min-h-[520px] w-full flex-col bg-[#faf9f5] text-[#37352f] dark:bg-[#262624] dark:text-[#e6e4dc]">
+        {/* Barra superior enxuta */}
+        <div className="flex shrink-0 items-center justify-between px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#c96442] text-white">
+              <Sparkles className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-sm font-semibold">Assistente Hunter Embarque</p>
+              {context?.desiredFunction && (
+                <p className="truncate text-xs text-[#8a8778] dark:text-[#a5a294]">
+                  {context.desiredFunction}{context?.city ? ` · ${context.city}` : ""}
+                </p>
+              )}
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-cyan-300">
-                <Sparkles className="h-3.5 w-3.5" />
-                <span className="text-xs font-medium">Assistente Hunter Embarque</span>
-              </div>
-              <h1 className="truncate text-lg font-bold text-white sm:text-xl">
-                Olá, {context?.firstName ?? "profissional"} 👋
-              </h1>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                {context?.desiredFunction && (
-                  <Badge className="border-white/20 bg-white/10 text-white backdrop-blur-sm">
-                    <Anchor className="mr-1 h-3 w-3" />{context.desiredFunction}
-                  </Badge>
-                )}
-                {context?.city && (
-                  <Badge className="border-white/20 bg-white/10 text-white backdrop-blur-sm">
-                    <Navigation className="mr-1 h-3 w-3" />{context.city}{context.state ? `, ${context.state}` : ""}
-                  </Badge>
-                )}
-              </div>
-            </div>
-            <Link to="/painel" className="hidden sm:block">
-              <Button variant="secondary" size="sm" className="border-white/20 bg-white/10 text-white hover:bg-white/20">
-                <LayoutDashboard className="mr-2 h-4 w-4" />Painel clássico
-              </Button>
-            </Link>
           </div>
-
-          {/* Chips de status */}
-          <div className="relative mt-3 flex flex-wrap gap-2">
-            {loading && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs font-medium text-white/80">
-                <Loader2 className="h-3 w-3 animate-spin" />Carregando seu perfil…
-              </span>
-            )}
-            <StatChip icon={ShieldCheck} tone="emerald" label={`${cs.active} certificações válidas`} />
-            {cs.expiring > 0 && <StatChip icon={AlertTriangle} tone="amber" label={`${cs.expiring} a vencer`} />}
-            {cs.expired > 0 && <StatChip icon={XCircle} tone="rose" label={`${cs.expired} vencidas`} />}
-            <StatChip icon={Briefcase} tone="cyan" label={`${context?.eligibleJobs ?? 0} vagas elegíveis`} />
-            <StatChip icon={User} tone="violet" label={`Perfil ${context?.profileCompletion ?? 0}%`} />
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={newChat}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#6b6858] transition-colors hover:bg-black/5 dark:text-[#a5a294] dark:hover:bg-white/5"
+              title="Nova conversa"
+            >
+              <Plus className="h-3.5 w-3.5" /><span className="hidden sm:inline">Nova conversa</span>
+            </button>
+            <Link
+              to="/painel"
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#6b6858] transition-colors hover:bg-black/5 dark:text-[#a5a294] dark:hover:bg-white/5"
+            >
+              <LayoutDashboard className="h-3.5 w-3.5" /><span className="hidden sm:inline">Painel</span>
+            </Link>
           </div>
         </div>
 
-        {/* Área do chat */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-card shadow-lg">
-          <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
-            {messages.length === 0 ? (
-              <div className="mx-auto flex max-w-xl flex-col items-center gap-5 py-6 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg">
-                  <Bot className="h-7 w-7 text-white" />
-                </div>
+        {/* Conversa */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-2xl px-4 sm:px-6">
+            {empty ? (
+              <div className="flex min-h-[52vh] flex-col items-center justify-center gap-7 py-8 text-center">
                 <div>
-                  <p className="font-semibold">Como posso te ajudar hoje?</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Pergunte sobre seu perfil, suas certificações ou as vagas ativas. Eu conheço seus dados.
+                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#c96442] text-white">
+                    <Anchor className="h-6 w-6" />
+                  </div>
+                  <h1 className="text-2xl font-semibold tracking-tight">
+                    Olá, {context?.firstName ?? "profissional"}
+                  </h1>
+                  <p className="mt-2 text-sm text-[#8a8778] dark:text-[#a5a294]">
+                    Converse sobre seu perfil, certificações e as vagas ativas. Eu conheço seus dados.
                   </p>
+                  {!loading && (
+                    <p className="mt-3 text-xs text-[#a3a091] dark:text-[#8f8d80]">
+                      {cs.active} certificações válidas
+                      {cs.expired ? ` · ${cs.expired} vencida${cs.expired > 1 ? "s" : ""}` : ""}
+                      {" · "}{context?.eligibleJobs ?? 0} vagas elegíveis
+                      {" · "}perfil {context?.profileCompletion ?? 0}%
+                    </p>
+                  )}
                 </div>
+
                 <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
                   {SUGGESTIONS.map((s) => (
                     <button
-                      key={s.text}
-                      onClick={() => send(s.text)}
-                      className="group flex items-center gap-3 rounded-xl border bg-muted/40 p-3 text-left text-sm transition-all hover:border-maritime-blue/40 hover:bg-muted"
+                      key={s}
+                      onClick={() => send(s)}
+                      disabled={isStreaming}
+                      className="rounded-xl border border-[#e6e2d6] bg-white/60 px-4 py-3 text-left text-sm text-[#514e44] transition-colors hover:border-[#d8d3c4] hover:bg-white disabled:opacity-50 dark:border-[#3a3a36] dark:bg-white/[0.03] dark:text-[#cfccc2] dark:hover:bg-white/[0.06]"
                     >
-                      <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-maritime-blue/10 text-maritime-blue group-hover:bg-maritime-blue/20">
-                        <s.icon className="h-4 w-4" />
-                      </span>
-                      {s.text}
+                      {s}
                     </button>
                   ))}
                 </div>
               </div>
             ) : (
-              messages.map((m, i) => (
-                <div key={i} className={`flex gap-2.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  {m.role === "assistant" && (
-                    <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600">
-                      <Bot className="h-3.5 w-3.5 text-white" />
-                    </div>
-                  )}
-                  <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm sm:max-w-[75%] ${
-                    m.role === "user"
-                      ? "rounded-br-md bg-maritime-blue text-white"
-                      : "rounded-bl-md bg-muted"
-                  }`}>
-                    {m.role === "assistant" ? (
-                      <div className="prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&>ol]:my-1 [&>ul]:my-1">
+              <div className="flex flex-col gap-7 py-6">
+                {messages.map((m, i) =>
+                  m.role === "assistant" ? (
+                    <div key={i} className="flex gap-3">
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#c96442] text-white">
+                        <Sparkles className="h-3.5 w-3.5" />
+                      </span>
+                      <div className="prose prose-sm max-w-none pt-0.5 text-[15px] leading-relaxed text-[#37352f] dark:prose-invert dark:text-[#e6e4dc] prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-headings:font-semibold prose-strong:text-inherit [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                         <ReactMarkdown>{m.content}</ReactMarkdown>
                       </div>
-                    ) : m.content}
-                  </div>
-                  {m.role === "user" && (
-                    <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-maritime-blue/10">
-                      <User className="h-3.5 w-3.5 text-maritime-blue" />
                     </div>
-                  )}
-                </div>
-              ))
-            )}
+                  ) : (
+                    <div key={i} className="flex justify-end gap-3">
+                      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[#eceadf] px-4 py-2.5 text-[15px] leading-relaxed text-[#37352f] dark:bg-[#3a3a36] dark:text-[#e6e4dc]">
+                        {m.content}
+                      </div>
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e0dccf] text-[#6b6858] dark:bg-[#3a3a36] dark:text-[#a5a294]">
+                        <User className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+                  ),
+                )}
 
-            {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600">
-                  <Bot className="h-3.5 w-3.5 text-white" />
-                </div>
-                <div className="rounded-2xl rounded-bl-md bg-muted px-4 py-3">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                </div>
+                {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
+                  <div className="flex gap-3">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#c96442] text-white">
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </span>
+                    <div className="flex items-center pt-1.5">
+                      <Loader2 className="h-4 w-4 animate-spin text-[#a3a091]" />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
+        </div>
 
-          {/* Input */}
-          <div className="border-t bg-card/80 p-3 backdrop-blur">
-            <div className="flex items-end gap-2">
+        {/* Composer */}
+        <div className="shrink-0 px-4 pb-4 sm:px-6">
+          <div className="mx-auto w-full max-w-2xl">
+            <div className="flex items-end gap-2 rounded-2xl border border-[#e0dccf] bg-white p-2 shadow-sm focus-within:border-[#c9c3b0] dark:border-[#3a3a36] dark:bg-[#30302e]">
               <textarea
                 ref={inputRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => { setInput(e.target.value); autosize(e.target); }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
                 }}
                 rows={1}
                 placeholder="Pergunte sobre seu perfil, certificações ou vagas…"
                 disabled={isStreaming}
-                className="max-h-32 flex-1 resize-none rounded-xl border bg-background px-4 py-2.5 text-sm outline-none focus:border-maritime-blue/50 focus:ring-2 focus:ring-maritime-blue/20 disabled:opacity-60"
+                className="max-h-48 flex-1 resize-none bg-transparent px-2.5 py-2 text-[15px] leading-relaxed text-[#37352f] outline-none placeholder:text-[#a3a091] disabled:opacity-60 dark:text-[#e6e4dc] dark:placeholder:text-[#8f8d80]"
               />
-              {messages.length > 0 && (
-                <Button variant="ghost" size="icon" onClick={clearChat} title="Limpar conversa" disabled={isStreaming}>
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
-              )}
-              <Button size="icon" onClick={() => send(input)} disabled={!input.trim() || isStreaming}
-                className="h-10 w-10 flex-shrink-0 rounded-xl">
+              <button
+                onClick={() => send(input)}
+                disabled={!input.trim() || isStreaming}
+                aria-label="Enviar"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#c96442] text-white transition-colors hover:bg-[#b4573a] disabled:cursor-not-allowed disabled:bg-[#dcd7c8] disabled:text-[#b5b1a2] dark:disabled:bg-[#3a3a36] dark:disabled:text-[#6b6858]"
+              >
                 <Send className="h-4 w-4" />
-              </Button>
+              </button>
             </div>
-            <p className="mt-1.5 px-1 text-[11px] text-muted-foreground">
+            <p className="mt-2 text-center text-[11px] text-[#a3a091] dark:text-[#8f8d80]">
               O assistente pode errar. Confira informações importantes no seu perfil.
             </p>
           </div>
         </div>
       </div>
     </DashboardLayout>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-
-const TONES: Record<string, string> = {
-  emerald: "bg-emerald-400/15 text-emerald-100 border-emerald-300/20",
-  amber: "bg-amber-400/15 text-amber-100 border-amber-300/20",
-  rose: "bg-rose-400/15 text-rose-100 border-rose-300/20",
-  cyan: "bg-cyan-400/15 text-cyan-100 border-cyan-300/20",
-  violet: "bg-violet-400/15 text-violet-100 border-violet-300/20",
-};
-
-function StatChip({ icon: Icon, label, tone }: { icon: any; label: string; tone: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium backdrop-blur-sm ${TONES[tone]}`}>
-      <Icon className="h-3 w-3" />{label}
-    </span>
   );
 }
