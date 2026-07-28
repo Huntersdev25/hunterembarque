@@ -60,7 +60,12 @@ export default function Onboarding() {
     setInitialized(true);
   }, [progress.loading, progress.profile, progress.firstIncompleteIndex, initialized]);
 
-  const scrollTop = () => scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  // No mobile o container do card não é mais o elemento rolável (a página rola),
+  // então subimos tanto o card (desktop) quanto a janela (mobile).
+  const scrollTop = () => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const finish = async () => {
     finishingRef.current = true;
@@ -142,9 +147,9 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-maritime-mist">
-      {/* Cabeçalho */}
-      <header className="h-14 shrink-0 flex items-center justify-between border-b bg-card px-4 sm:px-6">
+    <div className="flex min-h-[100dvh] flex-col bg-maritime-mist">
+      {/* Cabeçalho (fixo no topo para "Sair" sempre acessível) */}
+      <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b bg-card px-4 sm:px-6">
         <div className="flex items-center gap-2">
           <Ship className="h-5 w-5 text-maritime-blue" />
           <span className="text-sm sm:text-base font-semibold text-maritime-blue">Hunters Manpower</span>
@@ -156,9 +161,9 @@ export default function Onboarding() {
         </Button>
       </header>
 
-      {/* Conteúdo */}
-      <div className="flex-1 min-h-0 w-full max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-8">
-        <div className="flex gap-8 h-full min-h-0">
+      {/* Conteúdo — no mobile flui e a página rola; no desktop usa altura fixa com scroll interno */}
+      <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-8 lg:min-h-0">
+        <div className="flex flex-col gap-4 lg:h-full lg:min-h-0 lg:flex-row lg:gap-8">
           <OnboardingStepper
             currentIndex={currentIndex}
             stepStatuses={progress.stepStatuses}
@@ -167,12 +172,12 @@ export default function Onboarding() {
             onStepClick={goToStep}
           />
 
-          <main className="flex-1 min-w-0 min-h-0">
+          <main className="min-w-0 flex-1 lg:min-h-0">
             <div
               ref={scrollRef}
-              className="h-full min-h-0 rounded-2xl border bg-card shadow-card p-4 sm:p-6 lg:p-8 flex flex-col overflow-hidden"
+              className="flex flex-col rounded-2xl border bg-card p-4 shadow-card sm:p-6 lg:h-full lg:min-h-0 lg:overflow-hidden lg:p-8"
             >
-              <div key={currentIndex} className="flex-1 min-h-0 flex flex-col animate-fade-in">
+              <div key={currentIndex} className="flex flex-col animate-fade-in lg:min-h-0 lg:flex-1">
                 <StepComponent {...stepProps} />
               </div>
             </div>

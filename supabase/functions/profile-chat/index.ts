@@ -10,8 +10,8 @@ serve(async (req) => {
 
   try {
     const { messages, profileContext } = await req.json();
-    const OPENAI_API_KEY = Deno.env.get("OPEN_AI_API");
-    if (!OPENAI_API_KEY) throw new Error("OPEN_AI_API is not configured");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API");
+    if (!OPENAI_API_KEY) throw new Error("OPENAI_API is not configured");
     const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
 
     const systemPrompt = `Você é o Assistente de Perfil da plataforma Hunter Embarque, especializada em recrutamento marítimo e offshore.

@@ -34,7 +34,7 @@ export function StepShell({
   isFinal = false,
 }: StepShellProps) {
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col lg:h-full lg:min-h-0">
       {/* Cabeçalho da etapa */}
       <div className="mb-5 sm:mb-6">
         <div className="flex items-center gap-3">
@@ -52,11 +52,11 @@ export function StepShell({
         </div>
       </div>
 
-      {/* Corpo rolável */}
-      <div className="flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">{children}</div>
+      {/* Corpo — flui no mobile (página rola), scroll interno só no desktop */}
+      <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1 lg:-mr-1">{children}</div>
 
-      {/* Rodapé de navegação */}
-      <div className="mt-5 sm:mt-6 pt-4 border-t flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2">
+      {/* Rodapé de navegação — grudado no fim da viewport no mobile */}
+      <div className="sticky bottom-0 z-10 mt-5 flex flex-col-reverse items-stretch gap-2 border-t bg-card pt-4 pb-1 sm:mt-6 sm:flex-row sm:items-center sm:static sm:pb-0">
         {!hideBack && (
           <Button
             type="button"
