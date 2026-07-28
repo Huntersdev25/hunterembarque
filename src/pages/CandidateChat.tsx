@@ -15,7 +15,7 @@ import { DashboardLayout } from "@/components/ui/dashboard-layout";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Anchor, Send, User, LayoutDashboard, Sparkles, Loader2, Plus,
+  Anchor, Send, User, LayoutDashboard, Loader2, Plus,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -263,33 +263,33 @@ export default function CandidateChat() {
 
   return (
     <DashboardLayout userType="candidate">
-      <div className="flex h-[calc(100vh-6.5rem)] h-[calc(100dvh-6.5rem)] min-h-[520px] w-full flex-col bg-[#faf9f5] text-[#37352f] dark:bg-[#262624] dark:text-[#e6e4dc]">
+      <div className="flex h-[calc(100vh-6.5rem)] h-[calc(100dvh-6.5rem)] min-h-[520px] w-full flex-col bg-background text-foreground">
         {/* Barra superior enxuta */}
-        <div className="flex shrink-0 items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#c96442] text-white">
-              <Sparkles className="h-3.5 w-3.5" />
+        <div className="flex shrink-0 items-center justify-between border-b bg-card/60 px-4 py-3 backdrop-blur sm:px-6">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-maritime text-white shadow-sm">
+              <Anchor className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0 leading-tight">
-              <p className="truncate text-sm font-semibold">Assistente Hunter Embarque</p>
+              <p className="truncate text-sm font-semibold text-foreground">Assistente Hunter Embarque</p>
               {context?.desiredFunction && (
-                <p className="truncate text-xs text-[#8a8778] dark:text-[#a5a294]">
+                <p className="truncate text-xs text-muted-foreground">
                   {context.desiredFunction}{context?.city ? ` · ${context.city}` : ""}
                 </p>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
               onClick={newChat}
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#6b6858] transition-colors hover:bg-black/5 dark:text-[#a5a294] dark:hover:bg-white/5"
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               title="Nova conversa"
             >
               <Plus className="h-3.5 w-3.5" /><span className="hidden sm:inline">Nova conversa</span>
             </button>
             <Link
               to="/painel"
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#6b6858] transition-colors hover:bg-black/5 dark:text-[#a5a294] dark:hover:bg-white/5"
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <LayoutDashboard className="h-3.5 w-3.5" /><span className="hidden sm:inline">Painel</span>
             </Link>
@@ -302,17 +302,17 @@ export default function CandidateChat() {
             {empty ? (
               <div className="flex min-h-[52vh] flex-col items-center justify-center gap-7 py-8 text-center">
                 <div>
-                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#c96442] text-white">
-                    <Anchor className="h-6 w-6" />
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-maritime text-white shadow-maritime">
+                    <Anchor className="h-7 w-7" />
                   </div>
-                  <h1 className="text-2xl font-semibold tracking-tight">
+                  <h1 className="text-2xl font-bold tracking-tight text-foreground">
                     Olá, {context?.firstName ?? "profissional"}
                   </h1>
-                  <p className="mt-2 text-sm text-[#8a8778] dark:text-[#a5a294]">
+                  <p className="mt-2 text-sm text-muted-foreground">
                     Converse sobre seu perfil, certificações e as vagas ativas. Eu conheço seus dados.
                   </p>
                   {!loading && (
-                    <p className="mt-3 text-xs text-[#a3a091] dark:text-[#8f8d80]">
+                    <p className="mt-3 text-xs text-muted-foreground/80">
                       {cs.active} certificações válidas
                       {cs.expired ? ` · ${cs.expired} vencida${cs.expired > 1 ? "s" : ""}` : ""}
                       {" · "}{context?.eligibleJobs ?? 0} vagas elegíveis
@@ -327,7 +327,7 @@ export default function CandidateChat() {
                       key={s}
                       onClick={() => send(s)}
                       disabled={isStreaming}
-                      className="rounded-xl border border-[#e6e2d6] bg-white/60 px-4 py-3 text-left text-sm text-[#514e44] transition-colors hover:border-[#d8d3c4] hover:bg-white disabled:opacity-50 dark:border-[#3a3a36] dark:bg-white/[0.03] dark:text-[#cfccc2] dark:hover:bg-white/[0.06]"
+                      className="rounded-xl border bg-card px-4 py-3 text-left text-sm text-foreground/90 transition-colors hover:border-maritime-blue/40 hover:bg-muted disabled:opacity-50"
                     >
                       {s}
                     </button>
@@ -339,19 +339,19 @@ export default function CandidateChat() {
                 {messages.map((m, i) =>
                   m.role === "assistant" ? (
                     <div key={i} className="flex gap-3">
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#c96442] text-white">
-                        <Sparkles className="h-3.5 w-3.5" />
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-maritime text-white shadow-sm">
+                        <Anchor className="h-3.5 w-3.5" />
                       </span>
-                      <div className="prose prose-sm max-w-none pt-0.5 text-[15px] leading-relaxed text-[#37352f] dark:prose-invert dark:text-[#e6e4dc] prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-headings:font-semibold prose-strong:text-inherit [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                      <div className="prose prose-sm max-w-none pt-0.5 text-[15px] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-headings:font-semibold prose-strong:text-foreground prose-a:text-maritime-blue [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                         <ReactMarkdown>{m.content}</ReactMarkdown>
                       </div>
                     </div>
                   ) : (
                     <div key={i} className="flex justify-end gap-3">
-                      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[#eceadf] px-4 py-2.5 text-[15px] leading-relaxed text-[#37352f] dark:bg-[#3a3a36] dark:text-[#e6e4dc]">
+                      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-maritime-blue px-4 py-2.5 text-[15px] leading-relaxed text-white">
                         {m.content}
                       </div>
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e0dccf] text-[#6b6858] dark:bg-[#3a3a36] dark:text-[#a5a294]">
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-maritime-blue/10 text-maritime-blue">
                         <User className="h-3.5 w-3.5" />
                       </span>
                     </div>
@@ -360,11 +360,11 @@ export default function CandidateChat() {
 
                 {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
                   <div className="flex gap-3">
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#c96442] text-white">
-                      <Sparkles className="h-3.5 w-3.5" />
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-maritime text-white shadow-sm">
+                      <Anchor className="h-3.5 w-3.5" />
                     </span>
                     <div className="flex items-center pt-1.5">
-                      <Loader2 className="h-4 w-4 animate-spin text-[#a3a091]" />
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     </div>
                   </div>
                 )}
@@ -376,7 +376,7 @@ export default function CandidateChat() {
         {/* Composer */}
         <div className="shrink-0 px-4 pb-4 sm:px-6">
           <div className="mx-auto w-full max-w-2xl">
-            <div className="flex items-end gap-2 rounded-2xl border border-[#e0dccf] bg-white p-2 shadow-sm focus-within:border-[#c9c3b0] dark:border-[#3a3a36] dark:bg-[#30302e]">
+            <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm transition-colors focus-within:border-maritime-blue/50 focus-within:ring-2 focus-within:ring-maritime-blue/15">
               <textarea
                 ref={inputRef}
                 value={input}
@@ -387,18 +387,18 @@ export default function CandidateChat() {
                 rows={1}
                 placeholder="Pergunte sobre seu perfil, certificações ou vagas…"
                 disabled={isStreaming}
-                className="max-h-48 flex-1 resize-none bg-transparent px-2.5 py-2 text-[15px] leading-relaxed text-[#37352f] outline-none placeholder:text-[#a3a091] disabled:opacity-60 dark:text-[#e6e4dc] dark:placeholder:text-[#8f8d80]"
+                className="max-h-48 flex-1 resize-none bg-transparent px-2.5 py-2 text-[15px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
               />
               <button
                 onClick={() => send(input)}
                 disabled={!input.trim() || isStreaming}
                 aria-label="Enviar"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#c96442] text-white transition-colors hover:bg-[#b4573a] disabled:cursor-not-allowed disabled:bg-[#dcd7c8] disabled:text-[#b5b1a2] dark:disabled:bg-[#3a3a36] dark:disabled:text-[#6b6858]"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-maritime-blue text-white transition-colors hover:bg-maritime-blue/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               >
                 <Send className="h-4 w-4" />
               </button>
             </div>
-            <p className="mt-2 text-center text-[11px] text-[#a3a091] dark:text-[#8f8d80]">
+            <p className="mt-2 text-center text-[11px] text-muted-foreground">
               O assistente pode errar. Confira informações importantes no seu perfil.
             </p>
           </div>
