@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Save, User, ChevronLeft, ChevronRight, Check, MapPin, Briefcase, Languages, Award } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { JobFunctionSelector } from "@/components/JobFunctionSelector";
+import { MultiFunctionSelector } from "@/components/MultiFunctionSelector";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { CertificationUpload } from "@/components/CertificationUpload";
 import { fetchCepData, formatCep, isValidCep } from "@/lib/viaCep";
@@ -30,6 +31,7 @@ interface Candidate {
   gender?: "masculino" | "feminino" | "outro";
   residence_location?: string;
   desired_function?: string;
+  functions?: string[];
   professional_experience?: string;
   salary_expectation?: number;
   vessel_type?: string;
@@ -73,6 +75,7 @@ export function AdminCandidateDrawer({ open, onOpenChange, candidate, onSuccess 
   const [currentStep, setCurrentStep] = useState(1);
   const [languages, setLanguages] = useState<Language[]>([]);
   const [certifications, setCertifications] = useState<any>({});
+  const [profFunctions, setProfFunctions] = useState<string[]>([]);
 
   const [formData, setFormData] = useState<Candidate>({
     full_name: "",
@@ -135,6 +138,7 @@ export function AdminCandidateDrawer({ open, onOpenChange, candidate, onSuccess 
         address_complement: candidate.address_complement || "",
         profile_complete: candidate.profile_complete || false,
       });
+      setProfFunctions(Array.isArray(candidate.functions) ? candidate.functions : []);
 
       if (candidate.user_id) {
         loadAdditionalData(candidate.user_id);
@@ -164,6 +168,7 @@ export function AdminCandidateDrawer({ open, onOpenChange, candidate, onSuccess 
         address_complement: "",
         profile_complete: false,
       });
+      setProfFunctions([]);
       setLanguages([]);
       setCertifications({});
     }
@@ -336,6 +341,14 @@ export function AdminCandidateDrawer({ open, onOpenChange, candidate, onSuccess 
           .eq('user_id', candidate.user_id);
 
         if (error) throw error;
+
+        // Salva as funções do profissional em chamada isolada — se a coluna
+        // `functions` ainda não tiver sido migrada, não derruba o resto do save.
+        const { error: fnError } = await supabase
+          .from('profiles')
+          .update({ functions: profFunctions } as any)
+          .eq('user_id', candidate.user_id);
+        if (fnError) console.warn('Não foi possível salvar as funções (rode a migração do catálogo):', fnError.message);
 
         if (Object.keys(certifications).length > 0) {
           // Build clean certification data, converting DD/MM/YYYY dates to YYYY-MM-DD
@@ -659,6 +672,10 @@ export function AdminCandidateDrawer({ open, onOpenChange, candidate, onSuccess 
                 onChange={(value) => setFormData({...formData, desired_function: value})}
                 label="Função Desejada"
               />
+            </div>
+
+            <div className="space-y-2">
+              <MultiFunctionSelector value={profFunctions} onChange={setProfFunctions} />
             </div>
 
             <div className="grid grid-cols-2 gap-4">

@@ -53,6 +53,7 @@ interface Candidate {
   gender?: string;
   residence_location?: string;
   desired_function?: string;
+  functions?: string[];
   professional_experience?: string;
   salary_expectation?: number;
   vessel_type?: string;
@@ -633,6 +634,20 @@ export default function ProfessionalDetails() {
                 <div>
                   <label className="text-xs text-muted-foreground">Função Desejada</label>
                   <p className="text-sm font-medium border-b border-border/50 pb-2">{candidate.desired_function || 'Não informado'}</p>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Funções do Profissional</label>
+                  {candidate.functions && candidate.functions.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 pt-1.5 pb-2 border-b border-border/50">
+                      {candidate.functions.map((fn) => (
+                        <span key={fn} className="inline-flex items-center rounded-full bg-maritime-blue/10 px-2.5 py-1 text-xs font-medium text-maritime-blue">
+                          {fn}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium border-b border-border/50 pb-2">Não informado</p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground">Tipo de Embarcação</label>
