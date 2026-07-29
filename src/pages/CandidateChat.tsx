@@ -1,26 +1,25 @@
 /**
  * CandidateChat — a landing do profissional é um assistente de IA.
  *
- * Conversa sobre o perfil, certificações e vagas ativas (com elegibilidade
- * calculada). Reaproveita a edge function `profile-chat` (streaming SSE) e as
- * mesmas queries do dashboard clássico, que continua acessível em /painel.
+ * Visual idêntico ao chat do admin (AdminAIChat): header maritime-blue,
+ * avatares Bot/User, balão branco do assistente e balão azul do usuário,
+ * fundo bg-muted/30 e input com botão maritime-blue.
  *
- * Visual inspirado no Claude: coluna centrada, texto do assistente sem "balão",
- * fundo neutro quente, mensagens do usuário em bolha suave, input limpo.
+ * Reaproveita a edge function `profile-chat` (streaming SSE) e as mesmas
+ * queries do dashboard clássico, que continua acessível em /painel.
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import { DashboardLayout } from "@/components/ui/dashboard-layout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  Anchor, Send, User, LayoutDashboard, Loader2, Plus,
-} from "lucide-react";
+import { Bot, Send, User, LayoutDashboard, Loader2, Plus } from "lucide-react";
 
-/* ------------------------------------------------------------------ */
-/* Config (fallback p/ produção onde as VITE_* podem não estar setadas) */
-/* ------------------------------------------------------------------ */
+/* Fallback p/ produção onde as VITE_* podem não estar setadas no build. */
 const SUPA_URL =
   (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
   "https://augeppwihhzibvhzibxe.supabase.co";
@@ -28,10 +27,12 @@ const SUPA_KEY =
   (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1Z2VwcHdpaGh6aWJ2aHppYnhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0ODA4NDUsImV4cCI6MjA2OTA1Njg0NX0.8RUaODHeXMdRmFSRMaAoWuhnUdH7G0yCLQukqpDdD7w";
 
-/* ------------------------------------------------------------------ */
-/* Tipos                                                               */
-/* ------------------------------------------------------------------ */
 interface Message { role: "user" | "assistant"; content: string }
+
+const GREETING: Message = {
+  role: "assistant",
+  content: "Olá! Sou o assistente da Hunters Manpower. Posso te ajudar com seu perfil, suas certificações e as vagas ativas. Como posso ajudar?",
+};
 
 const CERTS: { name: string; label: string; fullName: string }[] = [
   { name: "cir", label: "CIR", fullName: "Carteira de Inscrição e Registro" },
@@ -69,29 +70,26 @@ const SUGGESTIONS = [
   "Como melhorar minha prontidão para embarque?",
 ];
 
-/* ------------------------------------------------------------------ */
-
 export default function CandidateChat() {
   const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
   const [context, setContext] = useState<any>(null);
 
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
       const saved = localStorage.getItem("candidate-chat-history");
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
+      const parsed = saved ? JSON.parse(saved) : null;
+      return parsed && parsed.length ? parsed : [GREETING];
+    } catch { return [GREETING]; }
   });
   const [input, setInput] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  /* ----- carregar contexto ----- */
+  /* ----- carregar contexto do perfil ----- */
   const fetchContext = useCallback(async () => {
-    if (!user) { setLoading(false); return; }
-    setLoading(true);
+    if (!user) return;
     try {
       const [prof, cert, jobsRes, appsRes] = await Promise.all([
         supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
@@ -168,13 +166,6 @@ export default function CandidateChat() {
       });
     } catch (err) {
       console.error("Erro ao carregar contexto do chat:", err);
-      setContext((prev: any) => prev ?? {
-        name: "Profissional", firstName: "Profissional",
-        certifications: [], certSummary: { active: 0, expiring: 0, expired: 0 },
-        jobs: [], applications: [], profileCompletion: 0, eligibleJobs: 0,
-      });
-    } finally {
-      setLoading(false);
     }
   }, [user]);
 
@@ -186,23 +177,23 @@ export default function CandidateChat() {
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, isStreaming]);
+  }, [messages, isLoading]);
 
   /* ----- envio + streaming ----- */
   const send = async (text: string) => {
-    if (!text.trim() || isStreaming) return;
+    if (!text.trim() || isLoading) return;
     const userMsg: Message = { role: "user", content: text.trim() };
-    setMessages((prev) => [...prev, userMsg]);
+    const updated = [...messages, userMsg];
+    setMessages(updated);
     setInput("");
-    if (inputRef.current) inputRef.current.style.height = "auto";
-    setIsStreaming(true);
+    setIsLoading(true);
     let soFar = "";
 
     try {
       const resp = await fetch(`${SUPA_URL}/functions/v1/profile-chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPA_KEY}` },
-        body: JSON.stringify({ messages: [...messages, userMsg], profileContext: context ?? {} }),
+        body: JSON.stringify({ messages: updated, profileContext: context ?? {} }),
       });
       if (!resp.ok || !resp.body) {
         const err = await resp.json().catch(() => ({}));
@@ -242,166 +233,144 @@ export default function CandidateChat() {
         }
       }
     } catch (e: any) {
-      setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${e.message}` }]);
+      setMessages((prev) => [...prev, { role: "assistant", content: e.message }]);
     } finally {
-      setIsStreaming(false);
+      setIsLoading(false);
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
+  };
+
   const newChat = () => {
-    setMessages([]);
+    setMessages([GREETING]);
     localStorage.removeItem("candidate-chat-history");
   };
 
-  const autosize = (el: HTMLTextAreaElement) => {
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 200) + "px";
-  };
-
-  const cs = context?.certSummary ?? { active: 0, expiring: 0, expired: 0 };
-  const empty = messages.length === 0;
+  const showSuggestions = messages.length <= 1 && !isLoading;
 
   return (
     <DashboardLayout userType="candidate">
-      <div className="flex h-[calc(100vh-6.5rem)] h-[calc(100dvh-6.5rem)] min-h-[520px] w-full flex-col bg-background text-foreground">
-        {/* Barra superior enxuta */}
-        <div className="flex shrink-0 items-center justify-between border-b bg-card/60 px-4 py-3 backdrop-blur sm:px-6">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-maritime text-white shadow-sm">
-              <Anchor className="h-3.5 w-3.5" />
-            </span>
-            <div className="min-w-0 leading-tight">
-              <p className="truncate text-sm font-semibold text-foreground">Assistente Hunter Embarque</p>
-              {context?.desiredFunction && (
-                <p className="truncate text-xs text-muted-foreground">
-                  {context.desiredFunction}{context?.city ? ` · ${context.city}` : ""}
-                </p>
-              )}
+      <div className="flex h-[calc(100vh-6.5rem)] h-[calc(100dvh-6.5rem)] min-h-[520px] w-full flex-col overflow-hidden rounded-xl border shadow-card">
+        {/* Header (igual ao admin) */}
+        <div className="flex shrink-0 items-center justify-between bg-maritime-blue p-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
+              <Bot className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-semibold text-white">Assistente Hunter Embarque</h3>
+              <p className="truncate text-xs text-white/70">
+                {context?.desiredFunction ? context.desiredFunction : "Assistente virtual"}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <button
-              onClick={newChat}
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              title="Nova conversa"
+            <Button
+              variant="ghost" size="sm"
+              className="h-8 gap-1.5 px-2.5 text-white/80 hover:bg-white/10 hover:text-white"
+              onClick={newChat} title="Nova conversa"
             >
-              <Plus className="h-3.5 w-3.5" /><span className="hidden sm:inline">Nova conversa</span>
-            </button>
-            <Link
-              to="/painel"
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <LayoutDashboard className="h-3.5 w-3.5" /><span className="hidden sm:inline">Painel</span>
+              <Plus className="h-4 w-4" /><span className="hidden sm:inline text-xs">Nova conversa</span>
+            </Button>
+            <Link to="/painel">
+              <Button
+                variant="ghost" size="sm"
+                className="h-8 gap-1.5 px-2.5 text-white/80 hover:bg-white/10 hover:text-white"
+              >
+                <LayoutDashboard className="h-4 w-4" /><span className="hidden sm:inline text-xs">Painel</span>
+              </Button>
             </Link>
           </div>
         </div>
 
-        {/* Conversa */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-2xl px-4 sm:px-6">
-            {empty ? (
-              <div className="flex min-h-[52vh] flex-col items-center justify-center gap-7 py-8 text-center">
-                <div>
-                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-maritime text-white shadow-maritime">
-                    <Anchor className="h-7 w-7" />
+        {/* Mensagens (igual ao admin) */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto bg-muted/30 p-4">
+          <div className="mx-auto max-w-3xl space-y-4">
+            {messages.map((m, i) => (
+              <div key={i} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
+                {m.role === "assistant" && (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-maritime-blue/10">
+                    <Bot className="h-4 w-4 text-maritime-blue" />
                   </div>
-                  <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                    Olá, {context?.firstName ?? "profissional"}
-                  </h1>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Converse sobre seu perfil, certificações e as vagas ativas. Eu conheço seus dados.
-                  </p>
-                  {!loading && (
-                    <p className="mt-3 text-xs text-muted-foreground/80">
-                      {cs.active} certificações válidas
-                      {cs.expired ? ` · ${cs.expired} vencida${cs.expired > 1 ? "s" : ""}` : ""}
-                      {" · "}{context?.eligibleJobs ?? 0} vagas elegíveis
-                      {" · "}perfil {context?.profileCompletion ?? 0}%
-                    </p>
+                )}
+                <div
+                  className={cn(
+                    "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm",
+                    m.role === "user"
+                      ? "rounded-br-md bg-maritime-blue text-white"
+                      : "rounded-bl-md border bg-card shadow-sm",
                   )}
-                </div>
-
-                <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-                  {SUGGESTIONS.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => send(s)}
-                      disabled={isStreaming}
-                      className="rounded-xl border bg-card px-4 py-3 text-left text-sm text-foreground/90 transition-colors hover:border-maritime-blue/40 hover:bg-muted disabled:opacity-50"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-7 py-6">
-                {messages.map((m, i) =>
-                  m.role === "assistant" ? (
-                    <div key={i} className="flex gap-3">
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-maritime text-white shadow-sm">
-                        <Anchor className="h-3.5 w-3.5" />
-                      </span>
-                      <div className="prose prose-sm max-w-none pt-0.5 text-[15px] leading-relaxed text-foreground dark:prose-invert prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-headings:font-semibold prose-strong:text-foreground prose-a:text-maritime-blue [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                        <ReactMarkdown>{m.content}</ReactMarkdown>
-                      </div>
+                >
+                  {m.role === "assistant" ? (
+                    <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5 prose-headings:font-semibold prose-strong:text-foreground prose-a:text-maritime-blue [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                      <ReactMarkdown>{m.content}</ReactMarkdown>
                     </div>
                   ) : (
-                    <div key={i} className="flex justify-end gap-3">
-                      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-maritime-blue px-4 py-2.5 text-[15px] leading-relaxed text-white">
-                        {m.content}
-                      </div>
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-maritime-blue/10 text-maritime-blue">
-                        <User className="h-3.5 w-3.5" />
-                      </span>
-                    </div>
-                  ),
-                )}
-
-                {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
-                  <div className="flex gap-3">
-                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-maritime text-white shadow-sm">
-                      <Anchor className="h-3.5 w-3.5" />
-                    </span>
-                    <div className="flex items-center pt-1.5">
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                    </div>
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                  )}
+                </div>
+                {m.role === "user" && (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-maritime-blue">
+                    <User className="h-4 w-4 text-white" />
                   </div>
                 )}
+              </div>
+            ))}
+
+            {/* Sugestões (só na abertura) */}
+            {showSuggestions && (
+              <div className="grid grid-cols-1 gap-2 pl-10 sm:grid-cols-2">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => send(s)}
+                    className="rounded-xl border bg-card px-4 py-2.5 text-left text-sm text-foreground/90 shadow-sm transition-colors hover:border-maritime-blue/40 hover:bg-muted"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {isLoading && messages[messages.length - 1]?.role === "user" && (
+              <div className="flex justify-start gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-maritime-blue/10">
+                  <Bot className="h-4 w-4 text-maritime-blue" />
+                </div>
+                <div className="rounded-2xl rounded-bl-md border bg-card px-4 py-3 shadow-sm">
+                  <Loader2 className="h-4 w-4 animate-spin text-maritime-blue" />
+                </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Composer */}
-        <div className="shrink-0 px-4 pb-4 sm:px-6">
-          <div className="mx-auto w-full max-w-2xl">
-            <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm transition-colors focus-within:border-maritime-blue/50 focus-within:ring-2 focus-within:ring-maritime-blue/15">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => { setInput(e.target.value); autosize(e.target); }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
-                }}
-                rows={1}
-                placeholder="Pergunte sobre seu perfil, certificações ou vagas…"
-                disabled={isStreaming}
-                className="max-h-48 flex-1 resize-none bg-transparent px-2.5 py-2 text-[15px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
-              />
-              <button
-                onClick={() => send(input)}
-                disabled={!input.trim() || isStreaming}
-                aria-label="Enviar"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-maritime-blue text-white transition-colors hover:bg-maritime-blue/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
-              >
-                <Send className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="mt-2 text-center text-[11px] text-muted-foreground">
-              O assistente pode errar. Confira informações importantes no seu perfil.
-            </p>
+        {/* Input (igual ao admin) */}
+        <div className="shrink-0 border-t bg-background p-4">
+          <div className="mx-auto flex max-w-3xl gap-2">
+            <Input
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Pergunte sobre seu perfil, certificações ou vagas..."
+              disabled={isLoading}
+              className="flex-1"
+            />
+            <Button
+              onClick={() => send(input)}
+              disabled={!input.trim() || isLoading}
+              size="icon"
+              className="bg-maritime-blue hover:bg-maritime-navy"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
           </div>
+          <p className="mx-auto mt-2 max-w-3xl text-center text-[10px] text-muted-foreground">
+            O assistente pode errar. Confira informações importantes no seu perfil.
+          </p>
         </div>
       </div>
     </DashboardLayout>
