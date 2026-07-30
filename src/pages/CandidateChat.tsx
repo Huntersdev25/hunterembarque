@@ -17,7 +17,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, Send, User, LayoutDashboard, Loader2, Plus } from "lucide-react";
+import { Bot, Send, User, LayoutDashboard, Loader2, Plus, Mic } from "lucide-react";
+import { VoiceConversation } from "@/components/VoiceConversation";
 
 /* Fallback p/ produção onde as VITE_* podem não estar setadas no build. */
 const SUPA_URL =
@@ -83,9 +84,12 @@ export default function CandidateChat() {
   });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const messagesRef = useRef<Message[]>(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   /* ----- carregar contexto do perfil ----- */
   const fetchContext = useCallback(async () => {
@@ -248,6 +252,45 @@ export default function CandidateChat() {
     localStorage.removeItem("candidate-chat-history");
   };
 
+  /* ----- usado pelo modo de voz: envia e devolve a resposta completa ----- */
+  const askAI = useCallback(async (msgs: Message[]): Promise<string> => {
+    const resp = await fetch(`${SUPA_URL}/functions/v1/profile-chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPA_KEY}` },
+      body: JSON.stringify({ messages: msgs, profileContext: context ?? {} }),
+    });
+    if (!resp.ok || !resp.body) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || "Não consegui responder agora.");
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "", out = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) !== -1) {
+        let line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        if (line.startsWith(":") || line.trim() === "" || !line.startsWith("data: ")) continue;
+        const json = line.slice(6).trim();
+        if (json === "[DONE]") break;
+        try {
+          const parsed = JSON.parse(json);
+          const c = parsed.choices?.[0]?.delta?.content;
+          if (c) out += c;
+        } catch { buffer = line + "\n" + buffer; break; }
+      }
+    }
+    return out.trim();
+  }, [context]);
+
+  const onVoiceExchange = (userText: string, aiText: string) =>
+    setMessages((prev) => [...prev, { role: "user", content: userText }, { role: "assistant", content: aiText }]);
+
   const showSuggestions = messages.length <= 1 && !isLoading;
 
   return (
@@ -350,6 +393,17 @@ export default function CandidateChat() {
         {/* Input (igual ao admin) */}
         <div className="shrink-0 border-t bg-background p-4">
           <div className="mx-auto flex max-w-3xl gap-2">
+            <Button
+              onClick={() => setVoiceOpen(true)}
+              disabled={isLoading}
+              size="icon"
+              variant="outline"
+              title="Conversar por voz"
+              aria-label="Conversar por voz"
+              className="shrink-0 border-maritime-blue/30 text-maritime-blue hover:bg-maritime-blue/10"
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
             <Input
               ref={inputRef}
               value={input}
@@ -373,6 +427,14 @@ export default function CandidateChat() {
           </p>
         </div>
       </div>
+
+      <VoiceConversation
+        open={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        getHistory={() => messagesRef.current}
+        onExchange={onVoiceExchange}
+        askAI={askAI}
+      />
     </DashboardLayout>
   );
 }
