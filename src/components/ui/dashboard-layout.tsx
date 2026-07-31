@@ -1,6 +1,7 @@
 import { ReactNode, memo } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { CopilotDrawer } from "@/components/CopilotDrawer";
 import { cn } from "@/lib/utils";
 
 interface DashboardLayoutProps {
@@ -48,6 +49,9 @@ export const DashboardLayout = memo(function DashboardLayout({ children, userTyp
             </div>
           </main>
         </div>
+
+        {/* Copiloto de Cadastro — só para o profissional */}
+        {userType === "candidate" && <CopilotDrawer />}
       </div>
     </SidebarProvider>
   );

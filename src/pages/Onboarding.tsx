@@ -14,6 +14,7 @@ import { StepReview } from "@/components/onboarding/steps/StepReview";
 import type { StepComponentProps } from "@/components/onboarding/types";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { CopilotDrawer } from "@/components/CopilotDrawer";
 import { Ship, LogOut, PartyPopper, Loader2 } from "lucide-react";
 
 const STEP_COMPONENTS: Record<number, (p: StepComponentProps) => JSX.Element> = {
@@ -184,6 +185,9 @@ export default function Onboarding() {
           </main>
         </div>
       </div>
+
+      {/* Copiloto que preenche a trilha */}
+      <CopilotDrawer />
     </div>
   );
 }

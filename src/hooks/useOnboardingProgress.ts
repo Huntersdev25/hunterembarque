@@ -74,6 +74,13 @@ export function useOnboardingProgress(userId: string | undefined): UseOnboarding
     reload();
   }, [reload]);
 
+  // O Copiloto de Cadastro dispara este evento após preencher campos — recarrega ao vivo.
+  useEffect(() => {
+    const onRefresh = () => reload();
+    window.addEventListener("onboarding:refresh", onRefresh);
+    return () => window.removeEventListener("onboarding:refresh", onRefresh);
+  }, [reload]);
+
   const saveProfilePatch = useCallback(
     async (patch: Record<string, any>): Promise<boolean> => {
       if (!userId) return false;
