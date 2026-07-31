@@ -20,6 +20,9 @@ import {
 const SUPA_URL =
   (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
   "https://augeppwihhzibvhzibxe.supabase.co";
+const SUPA_KEY =
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1Z2VwcHdpaGh6aWJ2aHppYnhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0ODA4NDUsImV4cCI6MjA2OTA1Njg0NX0.8RUaODHeXMdRmFSRMaAoWuhnUdH7G0yCLQukqpDdD7w";
 
 type Display = { role: "user" | "assistant" | "action"; content: string };
 type OAIMsg = any;
@@ -70,11 +73,22 @@ export function CopilotDrawer() {
       for (let i = 0; i < 6; i++) {
         const resp = await fetch(`${SUPA_URL}/functions/v1/onboarding-copilot`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPA_KEY}`,
+            apikey: SUPA_KEY,
+          },
           body: JSON.stringify({ messages: oaiRef.current, tools: openAITools(), certCatalog: certCatalogText() }),
         });
-        const data = await resp.json();
-        if (!resp.ok || !data.message) throw new Error(data.error || "Não consegui responder agora.");
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.message) {
+          throw new Error(
+            data.error ||
+              (resp.status === 404
+                ? "A função 'onboarding-copilot' ainda não foi publicada no Supabase."
+                : `Não consegui responder agora (HTTP ${resp.status}).`),
+          );
+        }
         const msg = data.message;
         oaiRef.current.push(msg);
 
