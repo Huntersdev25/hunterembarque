@@ -16,14 +16,6 @@ import {
   Sparkles, Send, X, Mic, Loader2, User, Wand2, Radio, Square,
 } from "lucide-react";
 
-/* Fallback p/ produção (VITE_* podem não estar no build da Vercel). */
-const SUPA_URL =
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
-  "https://augeppwihhzibvhzibxe.supabase.co";
-const SUPA_KEY =
-  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1Z2VwcHdpaGh6aWJ2aHppYnhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0ODA4NDUsImV4cCI6MjA2OTA1Njg0NX0.8RUaODHeXMdRmFSRMaAoWuhnUdH7G0yCLQukqpDdD7w";
-
 type Display = { role: "user" | "assistant" | "action"; content: string };
 type OAIMsg = any;
 
@@ -71,23 +63,11 @@ export function CopilotDrawer() {
     setBusy(true);
     try {
       for (let i = 0; i < 6; i++) {
-        const resp = await fetch(`${SUPA_URL}/functions/v1/onboarding-copilot`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SUPA_KEY}`,
-            apikey: SUPA_KEY,
-          },
-          body: JSON.stringify({ messages: oaiRef.current, tools: openAITools(), certCatalog: certCatalogText() }),
+        const { data, error } = await supabase.functions.invoke("onboarding-copilot", {
+          body: { messages: oaiRef.current, tools: openAITools(), certCatalog: certCatalogText() },
         });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok || !data.message) {
-          throw new Error(
-            data.error ||
-              (resp.status === 404
-                ? "A função 'onboarding-copilot' ainda não foi publicada no Supabase."
-                : `Não consegui responder agora (HTTP ${resp.status}).`),
-          );
+        if (error || !data?.message) {
+          throw new Error(data?.error || error?.message || "Não consegui responder agora.");
         }
         const msg = data.message;
         oaiRef.current.push(msg);
@@ -222,6 +202,7 @@ export function CopilotDrawer() {
       {/* Botão flutuante */}
       {!open && (
         <button
+          type="button"
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 z-50 flex h-14 items-center gap-2 rounded-full bg-maritime-blue px-5 text-white shadow-xl transition-transform hover:scale-105"
         >
@@ -251,7 +232,7 @@ export function CopilotDrawer() {
               <p className="text-xs text-white/70">Eu preencho pra você</p>
             </div>
           </div>
-          <button onClick={() => { stopVoice(); setOpen(false); }} className="rounded-full p-2 text-white/80 hover:bg-white/10" aria-label="Fechar">
+          <button type="button" onClick={() => { stopVoice(); setOpen(false); }} className="rounded-full p-2 text-white/80 hover:bg-white/10" aria-label="Fechar">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -298,7 +279,7 @@ export function CopilotDrawer() {
               <Radio className={cn("h-4 w-4", voiceStatus === "live" ? "animate-pulse text-red-500" : "text-muted-foreground")} />
               {voiceStatus === "connecting" ? "Conectando voz…" : voiceStatus === "live" ? "No ar — pode falar" : "Voz encerrada"}
             </div>
-            <button onClick={stopVoice} className="flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
+            <button type="button" onClick={stopVoice} className="flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
               <Square className="h-3 w-3" /> Encerrar
             </button>
           </div>
@@ -308,6 +289,7 @@ export function CopilotDrawer() {
         <div className="shrink-0 border-t bg-card p-3">
           <div className="flex items-end gap-2">
             <button
+              type="button"
               onClick={() => (mode === "voice" ? stopVoice() : startVoice())}
               disabled={busy}
               title="Conversar por voz (tempo real)"
@@ -328,6 +310,7 @@ export function CopilotDrawer() {
               className="max-h-32 flex-1 resize-none rounded-xl border bg-background px-3 py-2.5 text-sm outline-none focus:border-maritime-blue/50 disabled:opacity-60"
             />
             <button
+              type="button"
               onClick={() => send(input)}
               disabled={!input.trim() || busy}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-maritime-blue text-white hover:bg-maritime-navy disabled:opacity-50"
