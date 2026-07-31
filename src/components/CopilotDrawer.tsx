@@ -16,6 +16,37 @@ import {
   Sparkles, Send, X, Mic, Loader2, User, Wand2, Radio, Square,
 } from "lucide-react";
 
+/* Fallback p/ produção (VITE_* podem não estar no build da Vercel). */
+const SUPA_URL =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
+  "https://augeppwihhzibvhzibxe.supabase.co";
+const SUPA_KEY =
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1Z2VwcHdpaGh6aWJ2aHppYnhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0ODA4NDUsImV4cCI6MjA2OTA1Njg0NX0.8RUaODHeXMdRmFSRMaAoWuhnUdH7G0yCLQukqpDdD7w";
+
+/** POST ao onboarding-copilot com timeout + 1 retry (invoke falhava em chamadas repetidas). */
+async function callCopilot(messages: any[]): Promise<any> {
+  const attempt = async () => {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 45000);
+    try {
+      const resp = await fetch(`${SUPA_URL}/functions/v1/onboarding-copilot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPA_KEY}`, apikey: SUPA_KEY },
+        body: JSON.stringify({ messages, tools: openAITools(), certCatalog: certCatalogText() }),
+        signal: ctrl.signal,
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.message) throw new Error(data.error || `HTTP ${resp.status}`);
+      return data.message;
+    } finally {
+      clearTimeout(to);
+    }
+  };
+  try { return await attempt(); }
+  catch { await new Promise((r) => setTimeout(r, 600)); return await attempt(); }
+}
+
 type Display = { role: "user" | "assistant" | "action"; content: string };
 type OAIMsg = any;
 
@@ -63,13 +94,7 @@ export function CopilotDrawer() {
     setBusy(true);
     try {
       for (let i = 0; i < 6; i++) {
-        const { data, error } = await supabase.functions.invoke("onboarding-copilot", {
-          body: { messages: oaiRef.current, tools: openAITools(), certCatalog: certCatalogText() },
-        });
-        if (error || !data?.message) {
-          throw new Error(data?.error || error?.message || "Não consegui responder agora.");
-        }
-        const msg = data.message;
+        const msg = await callCopilot(oaiRef.current);
         oaiRef.current.push(msg);
 
         if (msg.tool_calls?.length) {
