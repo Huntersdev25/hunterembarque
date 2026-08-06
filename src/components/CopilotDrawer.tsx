@@ -4,6 +4,9 @@
  * Texto: loop de agente (edge fn onboarding-copilot) que executa TOOLS para
  *        preencher o cadastro ao vivo (via copilotTools).
  * Voz:   OpenAI Realtime API (WebRTC), em tempo real, com as MESMAS tools.
+ *
+ * Visual: superfície marítima/offshore dedicada (tema escuro próprio),
+ *         com hero, cards de acesso rápido e abertura com motion.
  */
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,7 +16,8 @@ import {
   openAITools, realtimeTools, runCopilotTool, certCatalogText,
 } from "@/lib/copilotTools";
 import {
-  Sparkles, Send, X, Mic, Loader2, User, Wand2, Radio, Square,
+  Sparkles, Send, X, Mic, Loader2, User, Wand2, Square,
+  Anchor, Waves, BadgeCheck, ListChecks,
 } from "lucide-react";
 
 /* Fallback p/ produção (VITE_* podem não estar no build da Vercel). */
@@ -57,7 +61,47 @@ Datas em YYYY-MM-DD. gender: masculino|feminino|outro. Uma chamada de definir_ce
 Anexos (currículo/PDF) você não envia — oriente o profissional a anexar. Fale português brasileiro, seja breve e amigável.
 Códigos de certificação: ${certCatalogText()}.`;
 
-export function CopilotDrawer() {
+/* ---------------- Fundo marítimo / offshore ---------------- */
+function MaritimeBackdrop() {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-b from-[#0a2432] via-[#0b2b38] to-[#05121a]" />
+      <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+      <div className="absolute -left-20 bottom-28 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl" />
+      <svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
+        {/* Plataforma offshore (esquerda) */}
+        <g stroke="rgba(148,220,245,0.16)" strokeWidth="1.5" fill="none" strokeLinecap="round">
+          <path d="M58 250 L100 470 M142 250 L100 470 M58 250 L142 250" />
+          <path d="M62 300 L138 300 M70 360 L130 360 M78 415 L122 415" />
+          <path d="M64 250 L136 250 L140 234 L60 234 Z" />
+          <path d="M92 234 L100 176 L108 234 M95 214 L105 214 M97 198 L103 198" />
+          <path d="M140 240 L162 232 L158 246" />
+        </g>
+        {/* Embarcação de apoio (direita) */}
+        <g stroke="rgba(148,220,245,0.16)" strokeWidth="1.5" fill="none" strokeLinecap="round">
+          <path d="M246 452 L374 452 L360 476 L262 476 Z" />
+          <path d="M330 452 L330 424 L360 424 L360 452 M337 431 L337 446 M345 431 L345 446 M353 431 L353 446" />
+          <path d="M298 452 L298 428 L280 438" />
+        </g>
+        {/* Ondas */}
+        <g stroke="rgba(148,220,245,0.10)" strokeWidth="1.5" fill="none">
+          <path d="M-10 560 Q40 544 90 560 T190 560 T290 560 T410 560" />
+          <path className="animate-pulse" d="M-10 588 Q40 572 90 588 T190 588 T290 588 T410 588" />
+          <path d="M-10 616 Q40 600 90 616 T190 616 T290 616 T410 616" />
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+const QUICK_TONES: Record<string, string> = {
+  amber: "bg-amber-400/15 text-amber-200",
+  cyan: "bg-cyan-400/15 text-cyan-200",
+  emerald: "bg-emerald-400/15 text-emerald-200",
+  blue: "bg-sky-400/15 text-sky-200",
+};
+
+export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"text" | "voice">("text");
@@ -83,6 +127,17 @@ export function CopilotDrawer() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [display, busy]);
 
+  // Abre sozinho ao carregar a trilha (uma vez por sessão), com motion.
+  useEffect(() => {
+    if (!autoOpen || !uid) return;
+    try { if (sessionStorage.getItem("copilot-autoopened")) return; } catch { /* noop */ }
+    const t = setTimeout(() => {
+      setOpen(true);
+      try { sessionStorage.setItem("copilot-autoopened", "1"); } catch { /* noop */ }
+    }, 650);
+    return () => clearTimeout(t);
+  }, [autoOpen, uid]);
+
   const pushDisplay = (d: Display) => setDisplay((p) => [...p, d]);
 
   /* ---------------- TEXTO: loop de agente ---------------- */
@@ -105,7 +160,7 @@ export function CopilotDrawer() {
             oaiRef.current.push({ role: "tool", tool_call_id: tc.id, content: result });
             if (tc.function.name !== "consultar_cadastro") pushDisplay({ role: "action", content: result });
           }
-          continue; // deixa o modelo seguir com o resultado das tools
+          continue;
         }
 
         if (msg.content) pushDisplay({ role: "assistant", content: msg.content });
@@ -134,7 +189,6 @@ export function CopilotDrawer() {
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
-      // áudio remoto (voz da IA)
       if (!audioElRef.current) {
         const el = document.createElement("audio");
         el.autoplay = true;
@@ -142,12 +196,10 @@ export function CopilotDrawer() {
       }
       pc.ontrack = (e) => { if (audioElRef.current) audioElRef.current.srcObject = e.streams[0]; };
 
-      // microfone
       const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
       micRef.current = mic;
       mic.getTracks().forEach((t) => pc.addTrack(t, mic));
 
-      // canal de eventos (tools + transcrições)
       const dc = pc.createDataChannel("oai-events");
       dcRef.current = dc;
       dc.onopen = () => {
@@ -187,7 +239,6 @@ export function CopilotDrawer() {
     let evt: any;
     try { evt = JSON.parse(raw); } catch { return; }
 
-    // a IA pediu uma tool
     if (evt.type === "response.function_call_arguments.done") {
       let args: any = {};
       try { args = JSON.parse(evt.arguments || "{}"); } catch { /* noop */ }
@@ -199,7 +250,6 @@ export function CopilotDrawer() {
       }));
       dcRef.current?.send(JSON.stringify({ type: "response.create" }));
     }
-    // transcrições (para mostrar no chat)
     if (evt.type === "conversation.item.input_audio_transcription.completed" && evt.transcript) {
       pushDisplay({ role: "user", content: evt.transcript.trim() });
     }
@@ -222,6 +272,15 @@ export function CopilotDrawer() {
 
   if (!uid) return null;
 
+  const showHero = mode === "text" && display.length <= 1;
+
+  const QUICK = [
+    { icon: Mic, label: "Cadastrar por voz", tone: "amber", onClick: () => startVoice() },
+    { icon: User, label: "Preencher meus dados", tone: "cyan", onClick: () => send("Quero preencher meus dados pessoais.") },
+    { icon: BadgeCheck, label: "Minhas certificações", tone: "emerald", onClick: () => send("Vamos cadastrar minhas certificações.") },
+    { icon: ListChecks, label: "O que falta?", tone: "blue", onClick: () => send("O que falta para concluir meu cadastro?") },
+  ];
+
   return (
     <>
       {/* Botão flutuante */}
@@ -229,120 +288,172 @@ export function CopilotDrawer() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex h-14 items-center gap-2 rounded-full bg-maritime-blue px-5 text-white shadow-xl transition-transform hover:scale-105"
+          className="fixed bottom-6 right-6 z-50 flex h-14 items-center gap-2 rounded-full bg-gradient-to-br from-maritime-blue to-cyan-500 px-5 text-white shadow-xl shadow-maritime-blue/30 transition-transform hover:scale-105"
         >
           <Wand2 className="h-5 w-5" />
           <span className="text-sm font-semibold">Copiloto</span>
         </button>
       )}
 
-      {/* Backdrop */}
-      {open && <div className="fixed inset-0 z-50 bg-black/30 md:hidden" onClick={() => setOpen(false)} />}
+      {/* Backdrop mobile */}
+      {open && <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm md:hidden" onClick={() => { stopVoice(); setOpen(false); }} />}
 
       {/* Drawer */}
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-[100dvh] w-full max-w-md flex-col border-l bg-card shadow-2xl transition-transform duration-300",
-          open ? "translate-x-0" : "translate-x-full",
+          "fixed right-0 top-0 z-50 flex h-[100dvh] w-full max-w-md flex-col overflow-hidden text-white shadow-2xl transition-all duration-500 ease-out",
+          open ? "translate-x-0 opacity-100" : "translate-x-full opacity-0",
         )}
       >
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between bg-maritime-blue p-4 text-white">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20">
-              <Sparkles className="h-4.5 w-4.5" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">Copiloto de Cadastro</p>
-              <p className="text-xs text-white/70">Eu preencho pra você</p>
-            </div>
-          </div>
-          <button type="button" onClick={() => { stopVoice(); setOpen(false); }} className="rounded-full p-2 text-white/80 hover:bg-white/10" aria-label="Fechar">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <MaritimeBackdrop />
 
-        {/* Mensagens */}
-        <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-muted/30 p-4">
-          {display.map((m, i) =>
-            m.role === "action" ? (
-              <div key={i} className="mx-auto flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                <Wand2 className="h-3 w-3" /> {m.content}
+        <div className="relative z-10 flex h-full flex-col">
+          {/* Header */}
+          <div className="flex shrink-0 items-center justify-between px-4 py-3.5">
+            <div className="flex items-center gap-2.5">
+              <div className="relative flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-maritime-blue">
+                <Sparkles className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Copiloto de Cadastro</p>
+                <p className="text-xs text-cyan-200/70">Eu preencho pra você</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => { stopVoice(); setOpen(false); }} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Fechar">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Corpo */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-2">
+            {showHero ? (
+              <div className="flex min-h-full flex-col items-center justify-center py-6 text-center">
+                {/* Avatar */}
+                <div className="relative mb-5 animate-in fade-in zoom-in-95 duration-700">
+                  <span className="absolute -inset-2 rounded-full bg-cyan-400/20 blur-xl" />
+                  <span className="absolute inset-0 animate-ping rounded-full bg-cyan-400/10" />
+                  <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-white/20 bg-gradient-to-br from-[#12414f] to-[#0a2733] shadow-2xl">
+                    <Anchor className="h-11 w-11 text-cyan-200" />
+                  </div>
+                </div>
+                <h2 className="animate-in fade-in slide-in-from-bottom-3 text-2xl font-bold tracking-tight duration-700">Copiloto de Cadastro</h2>
+                <p className="mt-1.5 max-w-xs animate-in fade-in slide-in-from-bottom-4 text-sm text-cyan-100/70 delay-100 duration-700">
+                  Me conte sobre você que eu preencho a trilha inteira — por texto ou por voz.
+                </p>
+
+                {/* Acesso rápido */}
+                <div className="mt-7 grid w-full grid-cols-2 gap-3">
+                  {QUICK.map((q, idx) => (
+                    <button
+                      key={q.label}
+                      type="button"
+                      onClick={q.onClick}
+                      style={{ animationDelay: `${150 + idx * 80}ms` }}
+                      className="group flex animate-in fade-in slide-in-from-bottom-4 flex-col items-start gap-2.5 rounded-2xl border border-white/10 bg-white/[0.06] p-3.5 text-left backdrop-blur-sm transition-all duration-500 hover:border-cyan-300/30 hover:bg-white/[0.1]"
+                    >
+                      <span className={cn("flex h-9 w-9 items-center justify-center rounded-xl", QUICK_TONES[q.tone])}>
+                        <q.icon className="h-5 w-5" />
+                      </span>
+                      <span className="text-sm font-medium leading-tight">{q.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : (
-              <div key={i} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
-                {m.role === "assistant" && (
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-maritime-blue/10">
-                    <Sparkles className="h-3.5 w-3.5 text-maritime-blue" />
-                  </div>
+              <div className="space-y-3 py-3">
+                {display.map((m, i) =>
+                  m.role === "action" ? (
+                    <div key={i} className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-emerald-400/15 px-3 py-1.5 text-xs font-medium text-emerald-200">
+                      <Wand2 className="h-3 w-3" /> {m.content}
+                    </div>
+                  ) : (
+                    <div key={i} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
+                      {m.role === "assistant" && (
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-400/15">
+                          <Sparkles className="h-3.5 w-3.5 text-cyan-200" />
+                        </div>
+                      )}
+                      <div className={cn(
+                        "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm animate-in fade-in slide-in-from-bottom-1 duration-300",
+                        m.role === "user"
+                          ? "rounded-br-md bg-gradient-to-br from-maritime-blue to-cyan-500 text-white"
+                          : "rounded-bl-md border border-white/10 bg-white/10 text-cyan-50 backdrop-blur-sm",
+                      )}>
+                        {m.content}
+                      </div>
+                      {m.role === "user" && (
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-500/80">
+                          <User className="h-3.5 w-3.5 text-white" />
+                        </div>
+                      )}
+                    </div>
+                  ),
                 )}
-                <div className={cn(
-                  "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
-                  m.role === "user" ? "rounded-br-md bg-maritime-blue text-white" : "rounded-bl-md border bg-card shadow-sm",
-                )}>
-                  {m.content}
-                </div>
-                {m.role === "user" && (
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-maritime-blue">
-                    <User className="h-3.5 w-3.5 text-white" />
+                {busy && (
+                  <div className="flex items-center gap-2 text-xs text-cyan-100/70">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> preenchendo…
                   </div>
                 )}
               </div>
-            ),
-          )}
-          {busy && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> preenchendo…
-            </div>
-          )}
-        </div>
-
-        {/* Barra de voz em tempo real */}
-        {mode === "voice" && (
-          <div className="flex items-center justify-between gap-3 border-t bg-maritime-blue/5 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Radio className={cn("h-4 w-4", voiceStatus === "live" ? "animate-pulse text-red-500" : "text-muted-foreground")} />
-              {voiceStatus === "connecting" ? "Conectando voz…" : voiceStatus === "live" ? "No ar — pode falar" : "Voz encerrada"}
-            </div>
-            <button type="button" onClick={stopVoice} className="flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
-              <Square className="h-3 w-3" /> Encerrar
-            </button>
+            )}
           </div>
-        )}
 
-        {/* Input */}
-        <div className="shrink-0 border-t bg-card p-3">
-          <div className="flex items-end gap-2">
-            <button
-              type="button"
-              onClick={() => (mode === "voice" ? stopVoice() : startVoice())}
-              disabled={busy}
-              title="Conversar por voz (tempo real)"
-              className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-colors",
-                mode === "voice" ? "border-red-300 bg-red-50 text-red-600 dark:bg-red-950/30" : "border-maritime-blue/30 text-maritime-blue hover:bg-maritime-blue/10",
-              )}
-            >
-              <Mic className="h-4 w-4" />
-            </button>
-            <textarea
-              value={input}
-              onChange={(e) => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px"; }}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-              rows={1}
-              placeholder="Conte sobre você que eu preencho…"
-              disabled={busy}
-              className="max-h-32 flex-1 resize-none rounded-xl border bg-background px-3 py-2.5 text-sm outline-none focus:border-maritime-blue/50 disabled:opacity-60"
-            />
-            <button
-              type="button"
-              onClick={() => send(input)}
-              disabled={!input.trim() || busy}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-maritime-blue text-white hover:bg-maritime-navy disabled:opacity-50"
-              aria-label="Enviar"
-            >
-              <Send className="h-4 w-4" />
-            </button>
+          {/* Barra de voz */}
+          {mode === "voice" && (
+            <div className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 backdrop-blur">
+              <div className="flex items-center gap-2 text-sm text-cyan-50">
+                <Waves className={cn("h-4 w-4", voiceStatus === "live" ? "animate-pulse text-amber-300" : "text-cyan-200/70")} />
+                {voiceStatus === "connecting" ? "Conectando voz…" : voiceStatus === "live" ? "No ar — pode falar" : "Voz encerrada"}
+              </div>
+              <button type="button" onClick={stopVoice} className="flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
+                <Square className="h-3 w-3" /> Encerrar
+              </button>
+            </div>
+          )}
+
+          {/* Composer */}
+          <div className="relative z-10 shrink-0 p-3">
+            <div className="flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-1.5 backdrop-blur">
+                <textarea
+                  value={input}
+                  onChange={(e) => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px"; }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
+                  rows={1}
+                  placeholder="Conte sobre você que eu preencho…"
+                  disabled={busy}
+                  className="max-h-28 flex-1 resize-none bg-transparent py-1.5 text-sm text-white outline-none placeholder:text-cyan-100/40 disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => send(input)}
+                  disabled={!input.trim() || busy}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-maritime-blue text-white transition-colors hover:bg-cyan-500 disabled:opacity-40"
+                  aria-label="Enviar"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Botão de voz (tempo real) */}
+              <button
+                type="button"
+                onClick={() => (mode === "voice" ? stopVoice() : startVoice())}
+                disabled={busy}
+                title="Conversar por voz (tempo real)"
+                className={cn(
+                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105",
+                  mode === "voice"
+                    ? "bg-red-500 text-white shadow-red-500/30"
+                    : "bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-orange-500/30",
+                )}
+              >
+                {mode === "voice" ? <Square className="h-5 w-5" /> : <Waves className="h-5 w-5" />}
+              </button>
+            </div>
+            <p className="mt-1.5 px-1 text-center text-[10px] text-cyan-100/40">
+              O copiloto preenche seu cadastro. Confira os dados na etapa de revisão.
+            </p>
           </div>
         </div>
       </aside>

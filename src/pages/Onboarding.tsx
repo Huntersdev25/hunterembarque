@@ -186,8 +186,8 @@ export default function Onboarding() {
         </div>
       </div>
 
-      {/* Copiloto que preenche a trilha */}
-      <CopilotDrawer />
+      {/* Copiloto que preenche a trilha — abre com motion ao carregar */}
+      <CopilotDrawer autoOpen />
     </div>
   );
 }
