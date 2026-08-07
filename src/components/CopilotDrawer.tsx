@@ -15,9 +15,10 @@ import { cn } from "@/lib/utils";
 import {
   openAITools, realtimeTools, runCopilotTool, certCatalogText,
 } from "@/lib/copilotTools";
+import { HuntersFace } from "@/components/HuntersFace";
 import {
   Send, X, Mic, Loader2, User, Wand2, Square,
-  Anchor, Waves, BadgeCheck, ListChecks,
+  Waves, BadgeCheck, ListChecks,
 } from "lucide-react";
 
 /* Fallback p/ produção (VITE_* podem não estar no build da Vercel). */
@@ -94,25 +95,8 @@ function MaritimeBackdrop() {
   );
 }
 
-/** Avatar da Hunters.IO (imagem em public/hunters-io.png; fallback p/ ícone). */
-function IOAvatar({ className, iconClass }: { className?: string; iconClass?: string }) {
-  const [ok, setOk] = useState(true);
-  if (ok) {
-    return (
-      <img
-        src="/hunters-io.png"
-        alt="Hunters.IO"
-        onError={() => setOk(false)}
-        className={cn("rounded-full object-cover", className)}
-      />
-    );
-  }
-  return (
-    <div className={cn("flex items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-maritime-blue", className)}>
-      <Anchor className={iconClass} />
-    </div>
-  );
-}
+/** Avatar da Hunters.IO usado em todos os pontos do chat. */
+const IOAvatar = HuntersFace;
 
 const QUICK_TONES: Record<string, string> = {
   amber: "bg-amber-400/15 text-amber-200",
@@ -405,6 +389,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                 )}
                 {busy && (
                   <div className="flex items-center gap-2 text-xs text-cyan-100/70">
+                    <IOAvatar className="h-7 w-7 border border-white/15" iconClass="h-3.5 w-3.5 text-cyan-200" />
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> preenchendo…
                   </div>
                 )}
@@ -416,6 +401,10 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
           {mode === "voice" && (
             <div className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 backdrop-blur">
               <div className="flex items-center gap-2 text-sm text-cyan-50">
+                <IOAvatar
+                  className={cn("h-8 w-8 border", voiceStatus === "live" ? "animate-pulse border-amber-300/60" : "border-white/15")}
+                  iconClass="h-4 w-4 text-cyan-200"
+                />
                 <Waves className={cn("h-4 w-4", voiceStatus === "live" ? "animate-pulse text-amber-300" : "text-cyan-200/70")} />
                 {voiceStatus === "connecting" ? "Conectando voz…" : voiceStatus === "live" ? "No ar — pode falar" : "Voz encerrada"}
               </div>
