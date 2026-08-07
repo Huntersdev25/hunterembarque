@@ -17,7 +17,7 @@ import {
 } from "@/lib/copilotTools";
 import { HuntersFace } from "@/components/HuntersFace";
 import { useVoiceTurnLoop } from "@/hooks/useVoiceTurnLoop";
-import { falar, calar, VOZ } from "@/lib/speak";
+import { falar, calar, destravarAudio, VOZ } from "@/lib/speak";
 import {
   Send, X, Mic, Loader2, User, Wand2, Square,
   Waves, BadgeCheck, ListChecks, Volume2, VolumeX,
@@ -32,7 +32,7 @@ const SUPA_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1Z2VwcHdpaGh6aWJ2aHppYnhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM0ODA4NDUsImV4cCI6MjA2OTA1Njg0NX0.8RUaODHeXMdRmFSRMaAoWuhnUdH7G0yCLQukqpDdD7w";
 
 /** POST ao onboarding-copilot com timeout + 1 retry (invoke falhava em chamadas repetidas). */
-async function callCopilot(messages: any[]): Promise<any> {
+async function callCopilot(messages: any[], instructions: string): Promise<any> {
   const attempt = async () => {
     const ctrl = new AbortController();
     const to = setTimeout(() => ctrl.abort(), 45000);
@@ -44,7 +44,7 @@ async function callCopilot(messages: any[]): Promise<any> {
           messages,
           tools: openAITools(),
           certCatalog: certCatalogText(),
-          instructions: INSTRUCTIONS,
+          instructions,
         }),
         signal: ctrl.signal,
       });
@@ -104,9 +104,11 @@ Códigos de certificação: ${certCatalogText()}.`;
 /** Realtime: mesma persona, com o ajuste de que a saída é falada. */
 const VOICE_INSTRUCTIONS = `${INSTRUCTIONS}
 
-Você está em uma conversa POR VOZ. Fale de forma natural e ritmada, como uma pessoa ao telefone.
-Frases curtas. Nada de listas numeradas, markdown, emoji ou soletrar pontuação.
-Não leia códigos técnicos de certificação em voz alta — use o nome por extenso.
+Você está em uma conversa POR VOZ e VOCÊ FALA: tudo que você escrever é convertido em áudio e o profissional vai OUVIR.
+Nunca diga que não consegue falar, que não tem voz ou que só funciona por texto — isso é falso. Se perguntarem se você fala, responda que sim e continue a conversa.
+Fale de forma natural e ritmada, como uma pessoa ao telefone. Frases curtas, no máximo duas por resposta.
+Nada de listas numeradas, markdown, emoji ou soletrar pontuação — nada disso existe quando se ouve.
+Não leia códigos técnicos de certificação em voz alta: use o nome por extenso.
 Se a pessoa te interromper, pare de falar e escute.`;
 
 /* ---------------- Fundo claro, marítimo, com movimento ---------------- */
@@ -230,6 +232,8 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
 
   // voz — "realtime" = WebRTC full-duplex; "turns" = Whisper + TTS (fallback)
   const [engine, setEngine] = useState<"realtime" | "turns">("realtime");
+  /** Por que o tempo real não subiu — mostrado na barra de voz para diagnóstico. */
+  const [motivoFallback, setMotivoFallback] = useState<string | null>(null);
   const [voiceStatus, setVoiceStatus] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
@@ -334,8 +338,12 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     userSaidRef.current.push(clean);
     setBusy(true);
     try {
+      // No modo de voz a resposta vai ser FALADA, então a persona precisa saber
+      // disso — com a persona de texto ela chegava a dizer "não consigo falar
+      // por áudio", que é falso, e respondia longo demais para ouvir.
+      const persona = mode === "voice" ? VOICE_INSTRUCTIONS : INSTRUCTIONS;
       for (let i = 0; i < 6; i++) {
-        const msg = await callCopilot(oaiRef.current);
+        const msg = await callCopilot(oaiRef.current, persona);
         oaiRef.current.push(msg);
 
         if (msg.tool_calls?.length) {
@@ -384,7 +392,9 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     });
     const ephemeral = data?.client_secret?.value;
     if (error || !ephemeral) {
-      console.warn("Realtime indisponível:", data?.error, data?.attempts ?? error);
+      const motivo = data?.error || error?.message || "token recusado";
+      console.warn("Realtime indisponível:", motivo, data?.attempts ?? "");
+      setMotivoFallback(`token: ${motivo}`);
       return false;
     }
     const isGA = data.api === "ga";
@@ -459,6 +469,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     const answer = await sdpResp.text();
     if (!sdpResp.ok) {
       console.warn("SDP recusado:", sdpResp.status, answer.slice(0, 300));
+      setMotivoFallback(`SDP ${sdpResp.status}`);
       return false;
     }
     await pc.setRemoteDescription({ type: "answer", sdp: answer });
@@ -467,13 +478,15 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
 
   const startVoice = async () => {
     if (!uid || mode === "voice") return;
+    destravarAudio(); // precisa ser aqui: dentro do gesto, antes de qualquer await
     pararSaudacao();
     setMode("voice");
     setVoiceStatus("connecting");
     try {
       if (await startRealtime()) return;
-    } catch (e) {
+    } catch (e: any) {
       console.warn("Realtime falhou:", e);
+      setMotivoFallback(e?.name === "NotAllowedError" ? "microfone negado" : (e?.message || "erro no WebRTC"));
     }
     // Realtime fora do ar: limpa o que sobrou e usa o modo por turnos.
     closeRealtime();
@@ -571,6 +584,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     handledCalls.current.clear();
     setVoiceStatus("idle");
     setEngine("realtime");
+    setMotivoFallback(null);
     setMode("text");
   };
 
@@ -613,7 +627,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
       {!open && (
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => { destravarAudio(); setOpen(true); }}
           className="fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-full bg-gradient-to-br from-maritime-blue to-cyan-500 py-1 pl-1 pr-4 text-white shadow-lg shadow-maritime-blue/30 transition-transform hover:scale-105"
         >
           <IOAvatar className="h-10 w-10 border-2 border-white/40" iconClass="h-4 w-4 text-white" />
@@ -758,7 +772,14 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                   iconClass="h-3.5 w-3.5 text-white"
                 />
                 <Waves className={cn("h-4 w-4 shrink-0", voiceStatus === "live" ? "animate-pulse text-amber-500" : "text-slate-400")} />
-                <span className="truncate">{voiceLabel}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{voiceLabel}</span>
+                  {engine === "turns" && motivoFallback && (
+                    <span className="block truncate text-[10px] text-slate-400">
+                      tempo real indisponível ({motivoFallback})
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 {engine === "turns" && fallback.status === "listening" && (

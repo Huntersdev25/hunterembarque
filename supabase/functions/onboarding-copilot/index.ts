@@ -71,7 +71,8 @@ Como agir:
       model,
       messages: [{ role: "system", content: systemPrompt }, ...(messages || [])],
       tools: tools && tools.length ? tools : undefined,
-      tool_choice: "auto" as const,
+      // tool_choice sem tools é rejeitado pela OpenAI com 400.
+      ...(tools && tools.length ? { tool_choice: "auto" as const } : {}),
       // Alto o bastante para soar como conversa, baixo o bastante para não
       // inventar dado nenhum na hora de chamar as tools.
       temperature: 0.6,

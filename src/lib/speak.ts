@@ -33,6 +33,44 @@ const corpo = (fn: Provedor, texto: string) =>
 
 let vencedor: Provedor | null = null;
 
+/* ------------------------------------------------------------------ */
+/* Elemento de áudio único, destravado no gesto do usuário             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * No celular o `play()` só é liberado dentro do gesto do usuário, e gerar a fala
+ * leva alguns segundos de rede — quando o áudio finalmente ficava pronto, a
+ * janela de permissão já havia expirado e o navegador bloqueava em silêncio.
+ *
+ * A solução é ter UM elemento de áudio, destravado tocando um WAV vazio no
+ * clique. Depois disso ele toca por conta própria, sem precisar de novo gesto.
+ */
+const WAV_VAZIO =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
+let elemento: HTMLAudioElement | null = null;
+
+function obterElemento(): HTMLAudioElement {
+  if (!elemento) {
+    elemento = new Audio();
+    elemento.setAttribute("playsinline", "");
+    elemento.preload = "auto";
+    elemento.style.display = "none";
+    // Alguns navegadores só reproduzem elemento que está no documento.
+    document.body.appendChild(elemento);
+  }
+  return elemento;
+}
+
+/** Chame DENTRO do onClick, antes de qualquer await, para liberar o áudio. */
+export function destravarAudio() {
+  const el = obterElemento();
+  try {
+    el.src = WAV_VAZIO;
+    el.play().then(() => el.pause()).catch(() => { /* já estava liberado ou não precisa */ });
+  } catch { /* noop */ }
+}
+
 /** Gera o áudio da fala. Devolve mp3 em base64, ou null se nenhum provedor responder. */
 export async function gerarFala(texto: string): Promise<string | null> {
   const limpo = texto?.trim();
@@ -92,17 +130,27 @@ export async function falar(
   const base64 = await gerarFala(limpo);
   if (!base64) return falarNoNavegador(limpo);
 
-  const audio = new Audio(`data:audio/mpeg;base64,${base64}`);
+  // Reusa o elemento destravado no clique — criar um novo aqui perderia a
+  // permissão de reprodução e o áudio não sairia no celular.
+  const audio = obterElemento();
+  audio.src = `data:audio/mpeg;base64,${base64}`;
   onStart?.(audio);
-  return new Promise<boolean>((resolve) => {
+
+  const tocou = await new Promise<boolean>((resolve) => {
     audio.onended = () => resolve(true);
     audio.onerror = () => resolve(false);
-    audio.play().catch(() => resolve(false));
+    audio.play().catch((e) => {
+      console.warn("Áudio bloqueado pelo navegador:", e?.name || e);
+      resolve(false);
+    });
   });
+
+  // Bloqueado mesmo assim: melhor a voz do sistema do que resposta muda.
+  return tocou || falarNoNavegador(limpo);
 }
 
 /** Cala qualquer fala em andamento (áudio ou síntese do navegador). */
 export function calar(audio?: HTMLAudioElement | null) {
-  audio?.pause();
+  (audio ?? elemento)?.pause();
   try { window.speechSynthesis?.cancel(); } catch { /* noop */ }
 }

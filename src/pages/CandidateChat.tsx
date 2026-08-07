@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Bot, Send, User, LayoutDashboard, Loader2, Plus, Mic } from "lucide-react";
 import { VoiceConversation } from "@/components/VoiceConversation";
+import { destravarAudio } from "@/lib/speak";
 
 /* Fallback p/ produção onde as VITE_* podem não estar setadas no build. */
 const SUPA_URL =
@@ -394,7 +395,7 @@ export default function CandidateChat() {
         <div className="shrink-0 border-t bg-background p-4">
           <div className="mx-auto flex max-w-3xl gap-2">
             <Button
-              onClick={() => setVoiceOpen(true)}
+              onClick={() => { destravarAudio(); setVoiceOpen(true); }}
               disabled={isLoading}
               size="icon"
               variant="outline"
