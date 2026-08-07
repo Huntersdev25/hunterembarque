@@ -9,6 +9,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { falar, calar } from "@/lib/speak";
 import { cn } from "@/lib/utils";
 import { Mic, X, Loader2, Volume2, AlertCircle, Send } from "lucide-react";
 
@@ -144,18 +145,9 @@ export function VoiceConversation({ open, onClose, getHistory, onExchange, askAI
       setReply(ai);
 
       setStatusBoth("speaking");
-      try {
-        const { data: tts } = await supabase.functions.invoke("openai-tts", { body: { text: ai } });
-        if (tts?.success && tts.audioContent) {
-          const audio = new Audio(`data:audio/mpeg;base64,${tts.audioContent}`);
-          audioRef.current = audio;
-          await new Promise<void>((resolve) => {
-            audio.onended = () => resolve();
-            audio.onerror = () => resolve();
-            audio.play().catch(() => resolve()); // iOS pode bloquear autoplay
-          });
-        }
-      } catch { /* TTS best-effort */ }
+      // Cascata de provedores + voz do navegador como último recurso: antes isso
+      // dependia só da openai-tts e, com ela fora do ar, a resposta vinha muda.
+      await falar(ai, (audio) => { audioRef.current = audio; });
       audioRef.current = null;
     } catch (e: any) {
       setError(e?.message || "Não consegui responder agora.");
@@ -201,7 +193,8 @@ export function VoiceConversation({ open, onClose, getHistory, onExchange, askAI
       try { recorderRef.current?.state !== "inactive" && recorderRef.current?.stop(); } catch { /* noop */ }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       audioCtxRef.current?.close().catch(() => {});
-      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+      calar(audioRef.current);
+      audioRef.current = null;
       streamRef.current = null; recorderRef.current = null; analyserRef.current = null; audioCtxRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

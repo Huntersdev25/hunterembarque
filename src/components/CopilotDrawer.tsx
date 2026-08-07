@@ -17,7 +17,7 @@ import {
 } from "@/lib/copilotTools";
 import { HuntersFace } from "@/components/HuntersFace";
 import { useVoiceTurnLoop } from "@/hooks/useVoiceTurnLoop";
-import { falar, calar } from "@/lib/speak";
+import { falar, calar, VOZ } from "@/lib/speak";
 import {
   Send, X, Mic, Loader2, User, Wand2, Square,
   Waves, BadgeCheck, ListChecks, Volume2, VolumeX,
@@ -379,7 +379,8 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
 
   const startRealtime = async (): Promise<boolean> => {
     const { data, error } = await supabase.functions.invoke("openai-realtime-token", {
-      body: { instructions: VOICE_INSTRUCTIONS, tools: realtimeTools() },
+      // A voz vai explícita para o timbre bater com o da saudação falada.
+      body: { instructions: VOICE_INSTRUCTIONS, tools: realtimeTools(), voice: VOZ },
     });
     const ephemeral = data?.client_secret?.value;
     if (error || !ephemeral) {
@@ -394,9 +395,21 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     if (!audioElRef.current) {
       const el = document.createElement("audio");
       el.autoplay = true;
+      (el as any).playsInline = true;
+      el.style.display = "none";
+      // Precisa estar no documento: elemento solto não toca de forma
+      // confiável em vários navegadores, e a voz sumia sem erro nenhum.
+      document.body.appendChild(el);
       audioElRef.current = el;
     }
-    pc.ontrack = (e) => { if (audioElRef.current) audioElRef.current.srcObject = e.streams[0]; };
+    pc.ontrack = (e) => {
+      const el = audioElRef.current;
+      if (!el) return;
+      el.srcObject = e.streams[0];
+      // autoplay sozinho não basta; o play explícito acontece dentro do
+      // gesto do clique no botão de voz, então o navegador libera.
+      el.play().catch((err) => console.warn("Áudio da voz bloqueado:", err));
+    };
 
     const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
     micRef.current = mic;
@@ -561,7 +574,13 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     setMode("text");
   };
 
-  useEffect(() => () => { closeRealtime(); fallback.stop(); pararSaudacao(); }, []); // cleanup ao desmontar
+  useEffect(() => () => {
+    closeRealtime();
+    fallback.stop();
+    pararSaudacao();
+    audioElRef.current?.remove();
+    audioElRef.current = null;
+  }, []); // cleanup ao desmontar
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
   if (!uid) return null;

@@ -27,8 +27,10 @@ serve(async (req) => {
         headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: Deno.env.get("OPENAI_TTS_MODEL") ?? "gpt-4o-mini-tts",
-          voice: payload.voice || Deno.env.get("OPENAI_TTS_VOICE") || "nova",
+          voice: payload.voice || Deno.env.get("OPENAI_TTS_VOICE") || "ash",
           input: fala,
+          instructions: Deno.env.get("OPENAI_TTS_STYLE") ||
+            "Fale português brasileiro com confiança e otimismo, ritmo natural e animado, tom caloroso e profissional.",
           response_format: "mp3",
         }),
       });

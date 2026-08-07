@@ -16,12 +16,19 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API");
     if (!OPENAI_API_KEY) return json({ success: false, error: "OPENAI_API não configurado." });
 
-    const { text, voice } = await req.json();
+    const { text, voice, instructions } = await req.json();
     if (!text || typeof text !== "string" || !text.trim())
       return json({ success: false, error: "Texto não fornecido." });
 
     const model = Deno.env.get("OPENAI_TTS_MODEL") ?? "gpt-4o-mini-tts";
-    const selectedVoice = voice || Deno.env.get("OPENAI_TTS_VOICE") || "nova";
+    // "ember" é voz do app do ChatGPT e não existe na API; `ash` é a mais
+    // próxima do timbre confiante que a Hunters.IO usa.
+    const selectedVoice = voice || Deno.env.get("OPENAI_TTS_VOICE") || "ash";
+    // O gpt-4o-mini-tts aceita direção de interpretação — é isso que dá o tom,
+    // mais do que a escolha da voz em si.
+    const estilo = instructions || Deno.env.get("OPENAI_TTS_STYLE") ||
+      "Fale português brasileiro com confiança e otimismo, como quem tem boas notícias. " +
+      "Ritmo natural e animado, sem pressa e sem soar robotico. Tom caloroso e profissional.";
 
     const response = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
@@ -30,6 +37,7 @@ serve(async (req) => {
         model,
         voice: selectedVoice,
         input: text.slice(0, 4000),
+        instructions: estilo,
         response_format: "mp3",
       }),
     });
@@ -37,7 +45,7 @@ serve(async (req) => {
     if (!response.ok) {
       const t = await response.text();
       console.error("OpenAI TTS error:", response.status, t);
-      return json({ success: false, error: `Erro ao gerar áudio (${response.status}).` });
+      return json({ success: false, error: `Erro ao gerar áudio (${response.status}).`, details: t.slice(0, 300) });
     }
 
     const audioBuffer = await response.arrayBuffer();

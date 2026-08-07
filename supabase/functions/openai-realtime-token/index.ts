@@ -34,7 +34,9 @@ serve(async (req) => {
 
     const envModel = Deno.env.get("OPENAI_REALTIME_MODEL");
     const gaModels = envModel ? [envModel] : ["gpt-realtime", "gpt-realtime-2.1"];
-    const gaVoices = wantedVoice ? [wantedVoice, "alloy"] : ["marin", "alloy"];
+    // `ash` é a mesma voz usada no TTS, para o timbre não mudar entre a
+    // saudação falada e a conversa em tempo real.
+    const gaVoices = wantedVoice ? [wantedVoice, "ash", "alloy"] : ["ash", "alloy"];
 
     const auth = { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" };
     const attempts: string[] = [];

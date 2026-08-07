@@ -10,9 +10,26 @@ import { supabase } from "@/integrations/supabase/client";
 
 type Provedor = "openai-tts" | "elevenlabs-tts" | "onboarding-copilot";
 
+/**
+ * Voz da Hunters.IO. A "ember" que o ChatGPT usa no app não existe na API
+ * (rejeitada com 400 tanto no /audio/speech quanto na Realtime); `ash` é a mais
+ * próxima daquele timbre confiante, e é a mesma usada na conversa em tempo real.
+ */
+export const VOZ = "ash";
+
+/** Direção de interpretação — é o que dá o tom, mais do que a voz escolhida. */
+const ESTILO =
+  "Fale português brasileiro com confiança e otimismo, como quem tem boas notícias. " +
+  "Ritmo natural e animado, tom caloroso e profissional.";
+
 const ORDEM: Provedor[] = ["openai-tts", "elevenlabs-tts", "onboarding-copilot"];
+
+// A voz vai no corpo da requisição (e não só no padrão da edge function) para
+// valer mesmo quando a function publicada estiver numa versão anterior.
 const corpo = (fn: Provedor, texto: string) =>
-  fn === "onboarding-copilot" ? { speak: texto } : { text: texto };
+  fn === "onboarding-copilot"
+    ? { speak: texto, voice: VOZ, instructions: ESTILO }
+    : { text: texto, voice: VOZ, instructions: ESTILO };
 
 let vencedor: Provedor | null = null;
 
