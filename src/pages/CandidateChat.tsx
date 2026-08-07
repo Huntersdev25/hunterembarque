@@ -1,12 +1,13 @@
 /**
- * CandidateChat — a landing do profissional é um assistente de IA.
+ * CandidateChat — a landing do profissional É a Hunters.IO.
  *
- * Visual idêntico ao chat do admin (AdminAIChat): header maritime-blue,
- * avatares Bot/User, balão branco do assistente e balão azul do usuário,
- * fundo bg-muted/30 e input com botão maritime-blue.
+ * Depois do login o profissional fala com a MESMA copiloto do drawer de
+ * cadastro: mesmo rosto, mesmo nome, mesma voz. Ela roda o agente
+ * `onboarding-copilot` com as ferramentas do copiloto, então além de
+ * responder sobre perfil, certificações e vagas ela também ATUALIZA o
+ * cadastro na hora — o contexto do profissional vai junto nas instruções.
  *
- * Reaproveita a edge function `profile-chat` (streaming SSE) e as mesmas
- * queries do dashboard clássico, que continua acessível em /painel.
+ * O dashboard clássico continua acessível em /painel.
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
@@ -17,9 +18,11 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, Send, User, LayoutDashboard, Loader2, Plus, Mic } from "lucide-react";
+import { Send, User, LayoutDashboard, Loader2, Plus, Mic, Wand2 } from "lucide-react";
 import { VoiceConversation } from "@/components/VoiceConversation";
 import { destravarAudio } from "@/lib/speak";
+import { HuntersFace } from "@/components/HuntersFace";
+import { openAITools, runCopilotTool, certCatalogText } from "@/lib/copilotTools";
 
 /* Fallback p/ produção onde as VITE_* podem não estar setadas no build. */
 const SUPA_URL =
@@ -33,8 +36,28 @@ interface Message { role: "user" | "assistant"; content: string }
 
 const GREETING: Message = {
   role: "assistant",
-  content: "Olá! Sou o assistente da Hunters Manpower. Posso te ajudar com seu perfil, suas certificações e as vagas ativas. Como posso ajudar?",
+  content: "Oi! Eu sou a Hunters.IO. Posso falar do seu perfil, das suas certificações e das vagas abertas — e também atualizar seu cadastro na hora, é só me pedir. No que eu ajudo?",
 };
+
+/** Persona da landing: a mesma copiloto, com o contexto de vagas junto. */
+const personaCompleta = (contexto: unknown) => `Você é a Hunters.IO, a copiloto do profissional na Hunters Manpower (recrutamento marítimo e offshore).
+
+Você faz duas coisas, e é a MESMA assistente nas duas:
+1. Responde sobre o perfil, as certificações, a prontidão para embarque e as vagas abertas, usando o CONTEXTO abaixo.
+2. ATUALIZA o cadastro com as ferramentas quando o profissional pedir ou informar um dado novo. Se ele disser "renovei meu STCW, agora vence em 10/03/2028", registre na hora.
+
+Como conversar:
+- Português brasileiro, tom de colega de bordo: direto, cordial, sem jargão corporativo.
+- Respostas curtas, de 1 a 3 frases. Uma pergunta por vez.
+- Nunca invente vaga, certificação, data ou requisito. Só use o que está no contexto ou o que ele disser.
+- Sobre elegibilidade, seja honesto: se falta certificação para uma vaga, diga qual falta.
+- Não prometa contratação, salário nem prazo de embarque.
+- Antes de afirmar o que falta no cadastro, use consultar_cadastro — o contexto abaixo é do carregamento da página e pode ter envelhecido.
+
+Códigos de certificação: ${certCatalogText()}.
+
+CONTEXTO ATUAL DO PROFISSIONAL (JSON):
+${JSON.stringify(contexto ?? {})}`;
 
 const CERTS: { name: string; label: string; fullName: string }[] = [
   { name: "cir", label: "CIR", fullName: "Carteira de Inscrição e Registro" },
@@ -75,6 +98,11 @@ const SUGGESTIONS = [
 export default function CandidateChat() {
   const { user } = useAuth();
   const [context, setContext] = useState<any>(null);
+  /** Espelho do contexto para o agente ler sem depender do closure. */
+  const contextRef = useRef<any>(null);
+  useEffect(() => { contextRef.current = context; }, [context]);
+  /** Confirmações de escrita ("Certificação X registrada"), mostradas como chips. */
+  const [acoes, setAcoes] = useState<string[]>([]);
 
   const [messages, setMessages] = useState<Message[]>(() => {
     try {
@@ -184,59 +212,71 @@ export default function CandidateChat() {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isLoading]);
 
-  /* ----- envio + streaming ----- */
+  /* ----- agente Hunters.IO: responde e, quando pedem, atualiza o cadastro ----- */
+
+  /** Histórico no formato da OpenAI (inclui as mensagens de tool). */
+  const oaiRef = useRef<any[]>([]);
+  /** Tudo que o profissional disse — a trava anti-invenção usa isso. */
+  const userSaidRef = useRef<string[]>([]);
+
+  // A conversa é restaurada do localStorage; sem semear, o agente veria a tela
+  // cheia de mensagens e a própria memória vazia.
+  const memoriaSemeada = useRef(false);
+  useEffect(() => {
+    if (memoriaSemeada.current) return;
+    memoriaSemeada.current = true;
+    const anteriores = messages.filter((m) => m.content && m !== GREETING);
+    oaiRef.current = anteriores.map((m) => ({ role: m.role, content: m.content }));
+    userSaidRef.current = anteriores.filter((m) => m.role === "user").map((m) => m.content);
+  }, [messages]);
+
+  const callAgent = useCallback(async (): Promise<string> => {
+    if (!user) return "";
+    const instructions = personaCompleta(contextRef.current);
+
+    for (let i = 0; i < 6; i++) {
+      const resp = await fetch(`${SUPA_URL}/functions/v1/onboarding-copilot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPA_KEY}`, apikey: SUPA_KEY },
+        body: JSON.stringify({
+          messages: oaiRef.current,
+          tools: openAITools(),
+          certCatalog: certCatalogText(),
+          instructions,
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.message) throw new Error(data.error || "Não consegui responder agora.");
+
+      const msg = data.message;
+      oaiRef.current.push(msg);
+
+      if (msg.tool_calls?.length) {
+        for (const tc of msg.tool_calls) {
+          let args: any = {};
+          try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* noop */ }
+          const result = await runCopilotTool(tc.function.name, args, user.id, { userSaid: userSaidRef.current });
+          oaiRef.current.push({ role: "tool", tool_call_id: tc.id, content: result });
+          if (tc.function.name !== "consultar_cadastro") setAcoes((a) => [...a, result]);
+        }
+        continue;
+      }
+      return msg.content || "";
+    }
+    return "";
+  }, [user]);
+
   const send = async (text: string) => {
-    if (!text.trim() || isLoading) return;
-    const userMsg: Message = { role: "user", content: text.trim() };
-    const updated = [...messages, userMsg];
-    setMessages(updated);
+    const limpo = text.trim();
+    if (!limpo || isLoading) return;
+    setMessages((prev) => [...prev, { role: "user", content: limpo }]);
+    oaiRef.current.push({ role: "user", content: limpo });
+    userSaidRef.current.push(limpo);
     setInput("");
     setIsLoading(true);
-    let soFar = "";
-
     try {
-      const resp = await fetch(`${SUPA_URL}/functions/v1/profile-chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPA_KEY}` },
-        body: JSON.stringify({ messages: updated, profileContext: context ?? {} }),
-      });
-      if (!resp.ok || !resp.body) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || "Não consegui responder agora. Tente de novo.");
-      }
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      const upsert = (chunk: string) => {
-        soFar += chunk;
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "assistant")
-            return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: soFar } : m));
-          return [...prev, { role: "assistant", content: soFar }];
-        });
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = buffer.indexOf("\n")) !== -1) {
-          let line = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 1);
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (line.startsWith(":") || line.trim() === "" || !line.startsWith("data: ")) continue;
-          const json = line.slice(6).trim();
-          if (json === "[DONE]") break;
-          try {
-            const parsed = JSON.parse(json);
-            const c = parsed.choices?.[0]?.delta?.content;
-            if (c) upsert(c);
-          } catch { buffer = line + "\n" + buffer; break; }
-        }
-      }
+      const resposta = await callAgent();
+      if (resposta) setMessages((prev) => [...prev, { role: "assistant", content: resposta }]);
     } catch (e: any) {
       setMessages((prev) => [...prev, { role: "assistant", content: e.message }]);
     } finally {
@@ -250,44 +290,21 @@ export default function CandidateChat() {
 
   const newChat = () => {
     setMessages([GREETING]);
+    oaiRef.current = [];
+    userSaidRef.current = [];
+    setAcoes([]);
     localStorage.removeItem("candidate-chat-history");
   };
 
-  /* ----- usado pelo modo de voz: envia e devolve a resposta completa ----- */
+  /* ----- usado pelo modo de voz: recebe a fala e devolve a resposta ----- */
   const askAI = useCallback(async (msgs: Message[]): Promise<string> => {
-    const resp = await fetch(`${SUPA_URL}/functions/v1/profile-chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPA_KEY}` },
-      body: JSON.stringify({ messages: msgs, profileContext: context ?? {} }),
-    });
-    if (!resp.ok || !resp.body) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error || "Não consegui responder agora.");
+    const ultima = msgs[msgs.length - 1];
+    if (ultima?.role === "user") {
+      oaiRef.current.push({ role: "user", content: ultima.content });
+      userSaidRef.current.push(ultima.content);
     }
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "", out = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) !== -1) {
-        let line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        if (line.endsWith("\r")) line = line.slice(0, -1);
-        if (line.startsWith(":") || line.trim() === "" || !line.startsWith("data: ")) continue;
-        const json = line.slice(6).trim();
-        if (json === "[DONE]") break;
-        try {
-          const parsed = JSON.parse(json);
-          const c = parsed.choices?.[0]?.delta?.content;
-          if (c) out += c;
-        } catch { buffer = line + "\n" + buffer; break; }
-      }
-    }
-    return out.trim();
-  }, [context]);
+    return await callAgent();
+  }, [callAgent]);
 
   const onVoiceExchange = (userText: string, aiText: string) =>
     setMessages((prev) => [...prev, { role: "user", content: userText }, { role: "assistant", content: aiText }]);
@@ -300,11 +317,9 @@ export default function CandidateChat() {
         {/* Header (igual ao admin) */}
         <div className="flex shrink-0 items-center justify-between bg-maritime-blue p-4">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
-              <Bot className="h-5 w-5 text-white" />
-            </div>
+            <HuntersFace className="h-10 w-10 ring-2 ring-white/30" iconClass="h-5 w-5 text-white" />
             <div className="min-w-0">
-              <h3 className="truncate text-sm font-semibold text-white">Assistente Hunter Embarque</h3>
+              <h3 className="truncate text-sm font-semibold text-white">Hunters.IO</h3>
               <p className="truncate text-xs text-white/70">
                 {context?.desiredFunction ? context.desiredFunction : "Assistente virtual"}
               </p>
@@ -335,9 +350,7 @@ export default function CandidateChat() {
             {messages.map((m, i) => (
               <div key={i} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
                 {m.role === "assistant" && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-maritime-blue/10">
-                    <Bot className="h-4 w-4 text-maritime-blue" />
-                  </div>
+                  <HuntersFace className="h-8 w-8 ring-1 ring-border" iconClass="h-4 w-4 text-white" />
                 )}
                 <div
                   className={cn(
@@ -378,11 +391,19 @@ export default function CandidateChat() {
               </div>
             )}
 
+            {/* O que ela gravou no cadastro durante a conversa */}
+            {acoes.map((a, i) => (
+              <div
+                key={`acao-${i}`}
+                className="mx-auto flex w-fit items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-medium text-emerald-700"
+              >
+                <Wand2 className="h-3 w-3" /> {a.split("\n")[0]}
+              </div>
+            ))}
+
             {isLoading && messages[messages.length - 1]?.role === "user" && (
               <div className="flex justify-start gap-2">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-maritime-blue/10">
-                  <Bot className="h-4 w-4 text-maritime-blue" />
-                </div>
+                <HuntersFace className="h-8 w-8 ring-1 ring-border" iconClass="h-4 w-4 text-white" />
                 <div className="rounded-2xl rounded-bl-md border bg-card px-4 py-3 shadow-sm">
                   <Loader2 className="h-4 w-4 animate-spin text-maritime-blue" />
                 </div>

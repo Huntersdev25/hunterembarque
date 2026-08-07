@@ -11,13 +11,13 @@ import { supabase } from "@/integrations/supabase/client";
 type Provedor = "openai-tts" | "elevenlabs-tts" | "onboarding-copilot";
 
 /**
- * Voz da Hunters.IO. A "ember" que o ChatGPT usa no app não existe na API
- * (rejeitada com 400 tanto no /audio/speech quanto na Realtime); `ash` é a mais
- * próxima daquele timbre confiante, e é a mesma usada na conversa em tempo real.
+ * Voz da Hunters.IO: `echo` no modelo tts-1 — a mesma combinação validada no
+ * n8n, que soa bem menos robótica em português. (A "ember" do app do ChatGPT
+ * não existe na API: é rejeitada com 400 nos dois endpoints.)
  */
-export const VOZ = "ash";
+export const VOZ = "echo";
 
-/** Direção de interpretação — é o que dá o tom, mais do que a voz escolhida. */
+/** Direção de interpretação — usada só pelos modelos gpt-4o-*, ignorada no tts-1. */
 const ESTILO =
   "Fale português brasileiro com confiança e otimismo, como quem tem boas notícias. " +
   "Ritmo natural e animado, tom caloroso e profissional.";

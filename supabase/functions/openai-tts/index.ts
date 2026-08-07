@@ -20,15 +20,16 @@ serve(async (req) => {
     if (!text || typeof text !== "string" || !text.trim())
       return json({ success: false, error: "Texto não fornecido." });
 
-    const model = Deno.env.get("OPENAI_TTS_MODEL") ?? "gpt-4o-mini-tts";
-    // "ember" é voz do app do ChatGPT e não existe na API; `ash` é a mais
-    // próxima do timbre confiante que a Hunters.IO usa.
-    const selectedVoice = voice || Deno.env.get("OPENAI_TTS_VOICE") || "ash";
-    // O gpt-4o-mini-tts aceita direção de interpretação — é isso que dá o tom,
-    // mais do que a escolha da voz em si.
+    // tts-1 + echo é a combinação que o usuário validou no n8n: soa bem mais
+    // natural em português do que o gpt-4o-mini-tts que estava aqui.
+    const model = Deno.env.get("OPENAI_TTS_MODEL") ?? "tts-1";
+    const selectedVoice = voice || Deno.env.get("OPENAI_TTS_VOICE") || "echo";
+
+    // Direção de interpretação só existe nos modelos gpt-4o-*; o tts-1 rejeita.
+    const aceitaEstilo = model.startsWith("gpt-4o");
     const estilo = instructions || Deno.env.get("OPENAI_TTS_STYLE") ||
       "Fale português brasileiro com confiança e otimismo, como quem tem boas notícias. " +
-      "Ritmo natural e animado, sem pressa e sem soar robotico. Tom caloroso e profissional.";
+      "Ritmo natural e animado, tom caloroso e profissional.";
 
     const response = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
@@ -37,7 +38,7 @@ serve(async (req) => {
         model,
         voice: selectedVoice,
         input: text.slice(0, 4000),
-        instructions: estilo,
+        ...(aceitaEstilo ? { instructions: estilo } : {}),
         response_format: "mp3",
       }),
     });
