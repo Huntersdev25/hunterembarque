@@ -13,13 +13,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import {
-  openAITools, realtimeTools, runCopilotTool, certCatalogText,
+  openAITools, realtimeTools, runCopilotTool, certCatalogText, buildGreeting,
 } from "@/lib/copilotTools";
 import { HuntersFace } from "@/components/HuntersFace";
 import { useVoiceTurnLoop } from "@/hooks/useVoiceTurnLoop";
+import { falar } from "@/lib/speak";
 import {
   Send, X, Mic, Loader2, User, Wand2, Square,
-  Waves, BadgeCheck, ListChecks,
+  Waves, BadgeCheck, ListChecks, Volume2, VolumeX,
 } from "lucide-react";
 
 /* Fallback p/ produção (VITE_* podem não estar no build da Vercel). */
@@ -174,6 +175,13 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   const micRef = useRef<MediaStream | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
 
+  // Saudação falada ao abrir — o usuário pode silenciar, e a escolha persiste.
+  const [saudacaoComVoz, setSaudacaoComVoz] = useState(() => {
+    try { return localStorage.getItem("hunters-io-saudacao") !== "muda"; } catch { return true; }
+  });
+  const jaSaudou = useRef(false);
+  const saudacaoAudioRef = useRef<HTMLAudioElement | null>(null);
+
   const uid = user?.id;
 
   useEffect(() => {
@@ -191,6 +199,40 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     return () => clearTimeout(t);
   }, [autoOpen, uid]);
 
+  const pararSaudacao = () => {
+    if (saudacaoAudioRef.current) {
+      saudacaoAudioRef.current.pause();
+      saudacaoAudioRef.current = null;
+    }
+  };
+
+  // Ao abrir, a Hunters.IO se apresenta: escreve e fala, já sabendo o que falta.
+  useEffect(() => {
+    if (!open || !uid || jaSaudou.current) return;
+    jaSaudou.current = true;
+
+    (async () => {
+      const texto = await buildGreeting(uid);
+      setDisplay([{ role: "assistant", content: texto }]);
+      oaiRef.current.push({ role: "assistant", content: texto });
+
+      if (!saudacaoComVoz) return;
+      // Abertura por clique tem gesto do usuário e toca; na abertura automática
+      // o navegador pode bloquear o autoplay — aí ela só cumprimenta por escrito.
+      await falar(texto, (audio) => { saudacaoAudioRef.current = audio; });
+      saudacaoAudioRef.current = null;
+    })();
+  }, [open, uid, saudacaoComVoz]);
+
+  const alternarSaudacao = () => {
+    setSaudacaoComVoz((v) => {
+      const proximo = !v;
+      try { localStorage.setItem("hunters-io-saudacao", proximo ? "voz" : "muda"); } catch { /* noop */ }
+      if (!proximo) pararSaudacao();
+      return proximo;
+    });
+  };
+
   const pushDisplay = (d: Display) => setDisplay((p) => [...p, d]);
 
   /* ---------------- Loop de agente (texto e voz-fallback) ---------------- */
@@ -198,6 +240,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   const runAgent = async (text: string): Promise<string> => {
     const clean = text.trim();
     if (!clean || !uid) return "";
+    pararSaudacao(); // se ela ainda estiver se apresentando, cala e escuta
     pushDisplay({ role: "user", content: clean });
     oaiRef.current.push({ role: "user", content: clean });
     userSaidRef.current.push(clean);
@@ -323,6 +366,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
 
   const startVoice = async () => {
     if (!uid || mode === "voice") return;
+    pararSaudacao();
     setMode("voice");
     setVoiceStatus("connecting");
     try {
@@ -429,7 +473,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     setMode("text");
   };
 
-  useEffect(() => () => { closeRealtime(); fallback.stop(); }, []); // cleanup ao desmontar
+  useEffect(() => () => { closeRealtime(); fallback.stop(); pararSaudacao(); }, []); // cleanup ao desmontar
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
   if (!uid) return null;
@@ -471,7 +515,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
       )}
 
       {/* Backdrop mobile */}
-      {open && <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm md:hidden" onClick={() => { stopVoice(); setOpen(false); }} />}
+      {open && <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm md:hidden" onClick={() => { pararSaudacao(); stopVoice(); setOpen(false); }} />}
 
       {/* Drawer */}
       <aside
@@ -492,9 +536,20 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                 <p className="text-xs text-cyan-200/70">Sua copiloto de cadastro</p>
               </div>
             </div>
-            <button type="button" onClick={() => { stopVoice(); setOpen(false); }} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Fechar">
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={alternarSaudacao}
+                className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white"
+                title={saudacaoComVoz ? "Silenciar a saudação falada" : "Deixar a Hunters.IO falar ao abrir"}
+                aria-label={saudacaoComVoz ? "Silenciar a saudação falada" : "Ativar a saudação falada"}
+              >
+                {saudacaoComVoz ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </button>
+              <button type="button" onClick={() => { pararSaudacao(); stopVoice(); setOpen(false); }} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Fechar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
           {/* Corpo */}
@@ -509,7 +564,9 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                 </div>
                 <h2 className="animate-in fade-in slide-in-from-bottom-3 text-2xl font-bold tracking-tight duration-700">Hunters.IO</h2>
                 <p className="mt-1.5 max-w-xs animate-in fade-in slide-in-from-bottom-4 text-sm text-cyan-100/70 delay-100 duration-700">
-                  Me conte sobre você que eu preencho a trilha inteira — por texto ou por voz.
+                  {display[0]?.role === "assistant"
+                    ? display[0].content
+                    : "Me conte sobre você que eu preencho a trilha inteira — por texto ou por voz."}
                 </p>
 
                 {/* Acesso rápido */}

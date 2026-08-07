@@ -9,6 +9,7 @@
  */
 import { useCallback, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { falar } from "@/lib/speak";
 
 export type VoiceLoopStatus = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "error";
 
@@ -116,18 +117,8 @@ export function useVoiceTurnLoop({ respond, onUserText, onError }: Options) {
 
       if (answer) {
         setBoth("speaking");
-        try {
-          const { data: tts } = await supabase.functions.invoke("openai-tts", { body: { text: answer } });
-          if (tts?.success && tts.audioContent) {
-            const audio = new Audio(`data:audio/mpeg;base64,${tts.audioContent}`);
-            audioRef.current = audio;
-            await new Promise<void>((resolve) => {
-              audio.onended = () => resolve();
-              audio.onerror = () => resolve();
-              audio.play().catch(() => resolve()); // iOS pode bloquear autoplay
-            });
-          }
-        } catch { /* TTS é best-effort: sem áudio a resposta ainda aparece no chat */ }
+        // Best-effort: sem áudio a resposta ainda aparece escrita no chat.
+        await falar(answer, (audio) => { audioRef.current = audio; });
         audioRef.current = null;
       }
     } catch (e: any) {

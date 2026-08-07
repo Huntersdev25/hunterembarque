@@ -15,7 +15,39 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API");
     if (!OPENAI_API_KEY) return json({ error: "OPENAI_API não configurado." }, 500);
 
-    const { messages, tools, certCatalog, instructions } = await req.json();
+    const payload = await req.json();
+
+    /* Modo TTS: devolve a fala da Hunters.IO em mp3 (base64).
+       Vive aqui, e não numa função própria, porque o token de deploy disponível
+       só consegue atualizar funções existentes — não criar novas. */
+    if (payload?.speak) {
+      const fala = String(payload.speak).slice(0, 4000);
+      const ttsResp = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: Deno.env.get("OPENAI_TTS_MODEL") ?? "gpt-4o-mini-tts",
+          voice: payload.voice || Deno.env.get("OPENAI_TTS_VOICE") || "nova",
+          input: fala,
+          response_format: "mp3",
+        }),
+      });
+
+      if (!ttsResp.ok) {
+        const t = await ttsResp.text();
+        console.error("TTS error:", ttsResp.status, t);
+        return json({ error: "Falha ao gerar a voz.", details: t.slice(0, 300) }, 502);
+      }
+
+      const buf = new Uint8Array(await ttsResp.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < buf.length; i += 8192) {
+        bin += String.fromCharCode(...buf.subarray(i, i + 8192));
+      }
+      return json({ success: true, audioContent: btoa(bin) });
+    }
+
+    const { messages, tools, certCatalog, instructions } = payload;
     const model = Deno.env.get("OPENAI_COPILOT_MODEL") ?? "gpt-4o";
 
     // A persona canônica é a que o cliente envia (mesma usada no modo voz);

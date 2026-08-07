@@ -153,6 +153,50 @@ export async function readCadastroState(userId: string): Promise<string> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Saudação falada                                                     */
+/* ------------------------------------------------------------------ */
+
+const LABEL_ETAPA: Record<string, string> = {
+  personal: "seus dados pessoais",
+  address: "o endereço",
+  professional: "o perfil profissional",
+  certifications: "as certificações",
+  documents: "os documentos",
+};
+
+/** Junta em linguagem natural: "a, b e c". */
+const listar = (itens: string[]) =>
+  itens.length <= 1 ? (itens[0] ?? "") : `${itens.slice(0, -1).join(", ")} e ${itens[itens.length - 1]}`;
+
+/**
+ * Texto com que a Hunters.IO se apresenta ao abrir o chat.
+ *
+ * Montado localmente a partir do cadastro (sem chamar a IA) para a fala sair
+ * na hora — o gesto de clique do usuário autoriza o áudio, e esperar uma
+ * ida ao modelo faria perder essa janela.
+ */
+export async function buildGreeting(userId: string): Promise<string> {
+  try {
+    const s = JSON.parse(await readCadastroState(userId));
+    const primeiro = String(s.dados_pessoais?.full_name ?? "").trim().split(/\s+/)[0];
+    const ola = primeiro ? `Oi, ${primeiro}!` : "Oi!";
+    const pct = parseInt(String(s.prontidao ?? "0"), 10) || 0;
+
+    if (pct === 0) {
+      return `${ola} Eu sou a Hunters.IO, sua copiloto de cadastro. Me conta sobre você que eu preencho a trilha inteira — pode ser por texto ou por voz.`;
+    }
+    if (pct >= 100) {
+      return `${ola} Aqui é a Hunters.IO. Seu cadastro já está completo. Se quiser atualizar uma certificação ou trocar algum dado, é só me falar.`;
+    }
+    const etapas = Object.keys(s.faltando ?? {}).map((k) => LABEL_ETAPA[k] ?? k);
+    const falta = etapas.length ? ` Ainda falta ${listar(etapas)}.` : "";
+    return `${ola} Aqui é a Hunters.IO. Seu cadastro está em ${pct}%.${falta} Quer continuar de onde parou?`;
+  } catch {
+    return "Oi! Eu sou a Hunters.IO, sua copiloto de cadastro. Me conta sobre você que eu preencho a trilha pra você.";
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Execução das tools                                                  */
 /* ------------------------------------------------------------------ */
 
