@@ -17,7 +17,7 @@ import {
 } from "@/lib/copilotTools";
 import { HuntersFace } from "@/components/HuntersFace";
 import { useVoiceTurnLoop } from "@/hooks/useVoiceTurnLoop";
-import { falar } from "@/lib/speak";
+import { falar, calar } from "@/lib/speak";
 import {
   Send, X, Mic, Loader2, User, Wand2, Square,
   Waves, BadgeCheck, ListChecks, Volume2, VolumeX,
@@ -109,33 +109,94 @@ Frases curtas. Nada de listas numeradas, markdown, emoji ou soletrar pontuação
 Não leia códigos técnicos de certificação em voz alta — use o nome por extenso.
 Se a pessoa te interromper, pare de falar e escute.`;
 
-/* ---------------- Fundo marítimo / offshore ---------------- */
+/* ---------------- Fundo claro, marítimo, com movimento ---------------- */
+
+/** Keyframes locais: o tailwind.config do projeto só tem fade-in/slide-in. */
+const BACKDROP_CSS = `
+@keyframes io-flutua {
+  0%,100% { transform: translate3d(0,0,0) scale(1); }
+  50%     { transform: translate3d(6%,-4%,0) scale(1.12); }
+}
+@keyframes io-flutua-lento {
+  0%,100% { transform: translate3d(0,0,0) scale(1.05); }
+  50%     { transform: translate3d(-7%,5%,0) scale(1); }
+}
+@keyframes io-onda { from { transform: translateX(0); } to { transform: translateX(-400px); } }
+@keyframes io-sobe { 0% { transform: translateY(0); opacity: 0; } 15%,85% { opacity: 1; } 100% { transform: translateY(-190px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .io-anim { animation: none !important; }
+}
+`;
+
 function MaritimeBackdrop() {
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0a2432] via-[#0b2b38] to-[#05121a]" />
-      <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
-      <div className="absolute -left-20 bottom-28 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl" />
+    <div className="pointer-events-none absolute inset-0 overflow-hidden bg-white">
+      <style>{BACKDROP_CSS}</style>
+
+      {/* Lavagem de cor suave */}
+      <div className="absolute inset-0 bg-gradient-to-b from-sky-50 via-white to-cyan-50/70" />
+
+      {/* Manchas de luz que respiram devagar */}
+      <div
+        className="io-anim absolute -right-24 -top-24 h-80 w-80 rounded-full bg-cyan-300/30 blur-3xl"
+        style={{ animation: "io-flutua 19s ease-in-out infinite" }}
+      />
+      <div
+        className="io-anim absolute -left-24 top-1/3 h-72 w-72 rounded-full bg-blue-300/25 blur-3xl"
+        style={{ animation: "io-flutua-lento 24s ease-in-out infinite" }}
+      />
+      <div
+        className="io-anim absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-sky-200/40 blur-3xl"
+        style={{ animation: "io-flutua 27s ease-in-out infinite reverse" }}
+      />
+
+      {/* Bolhas subindo — o toque "submarino" */}
+      {[
+        { left: "12%", size: 7, delay: 0, dur: 15 },
+        { left: "27%", size: 4, delay: 4, dur: 12 },
+        { left: "68%", size: 9, delay: 2, dur: 18 },
+        { left: "83%", size: 5, delay: 7, dur: 14 },
+        { left: "48%", size: 6, delay: 9, dur: 16 },
+      ].map((b, i) => (
+        <span
+          key={i}
+          className="io-anim absolute bottom-24 rounded-full border border-cyan-400/25 bg-cyan-200/20"
+          style={{
+            left: b.left,
+            height: b.size,
+            width: b.size,
+            animation: `io-sobe ${b.dur}s linear ${b.delay}s infinite`,
+          }}
+        />
+      ))}
+
+      {/* Silhueta offshore + ondas que correm */}
       <svg viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
-        {/* Plataforma offshore (esquerda) */}
-        <g stroke="rgba(148,220,245,0.16)" strokeWidth="1.5" fill="none" strokeLinecap="round">
+        <g stroke="rgb(56 152 224 / 0.14)" strokeWidth="1.5" fill="none" strokeLinecap="round">
           <path d="M58 250 L100 470 M142 250 L100 470 M58 250 L142 250" />
           <path d="M62 300 L138 300 M70 360 L130 360 M78 415 L122 415" />
           <path d="M64 250 L136 250 L140 234 L60 234 Z" />
           <path d="M92 234 L100 176 L108 234 M95 214 L105 214 M97 198 L103 198" />
           <path d="M140 240 L162 232 L158 246" />
         </g>
-        {/* Embarcação de apoio (direita) */}
-        <g stroke="rgba(148,220,245,0.16)" strokeWidth="1.5" fill="none" strokeLinecap="round">
+        <g stroke="rgb(56 152 224 / 0.14)" strokeWidth="1.5" fill="none" strokeLinecap="round">
           <path d="M246 452 L374 452 L360 476 L262 476 Z" />
           <path d="M330 452 L330 424 L360 424 L360 452 M337 431 L337 446 M345 431 L345 446 M353 431 L353 446" />
           <path d="M298 452 L298 428 L280 438" />
         </g>
-        {/* Ondas */}
-        <g stroke="rgba(148,220,245,0.10)" strokeWidth="1.5" fill="none">
-          <path d="M-10 560 Q40 544 90 560 T190 560 T290 560 T410 560" />
-          <path className="animate-pulse" d="M-10 588 Q40 572 90 588 T190 588 T290 588 T410 588" />
-          <path d="M-10 616 Q40 600 90 616 T190 616 T290 616 T410 616" />
+
+        {/* Cada onda é desenhada em dobro e deslizada 400px: o loop fica invisível. */}
+        <g className="io-anim" style={{ animation: "io-onda 22s linear infinite" }}>
+          <path d="M0 560 Q50 544 100 560 T200 560 T300 560 T400 560 T500 560 T600 560 T700 560 T800 560"
+                stroke="rgb(56 152 224 / 0.16)" strokeWidth="1.5" fill="none" />
+        </g>
+        <g className="io-anim" style={{ animation: "io-onda 15s linear infinite" }}>
+          <path d="M0 592 Q50 574 100 592 T200 592 T300 592 T400 592 T500 592 T600 592 T700 592 T800 592"
+                stroke="rgb(34 197 214 / 0.14)" strokeWidth="1.5" fill="none" />
+        </g>
+        <g className="io-anim" style={{ animation: "io-onda 30s linear infinite" }}>
+          <path d="M0 624 Q50 608 100 624 T200 624 T300 624 T400 624 T500 624 T600 624 T700 624 T800 624"
+                stroke="rgb(56 152 224 / 0.10)" strokeWidth="1.5" fill="none" />
         </g>
       </svg>
     </div>
@@ -146,10 +207,10 @@ function MaritimeBackdrop() {
 const IOAvatar = HuntersFace;
 
 const QUICK_TONES: Record<string, string> = {
-  amber: "bg-amber-400/15 text-amber-200",
-  cyan: "bg-cyan-400/15 text-cyan-200",
-  emerald: "bg-emerald-400/15 text-emerald-200",
-  blue: "bg-sky-400/15 text-sky-200",
+  amber: "bg-amber-100 text-amber-600",
+  cyan: "bg-cyan-100 text-cyan-600",
+  emerald: "bg-emerald-100 text-emerald-600",
+  blue: "bg-sky-100 text-sky-600",
 };
 
 export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
@@ -181,6 +242,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   });
   const jaSaudou = useRef(false);
   const saudacaoAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [falando, setFalando] = useState(false);
 
   const uid = user?.id;
 
@@ -199,11 +261,27 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     return () => clearTimeout(t);
   }, [autoOpen, uid]);
 
+  /** Listener armado quando o autoplay é bloqueado, para falar no primeiro gesto. */
+  const gestoRef = useRef<(() => void) | null>(null);
+
   const pararSaudacao = () => {
-    if (saudacaoAudioRef.current) {
-      saudacaoAudioRef.current.pause();
-      saudacaoAudioRef.current = null;
+    calar(saudacaoAudioRef.current);
+    saudacaoAudioRef.current = null;
+    setFalando(false);
+    if (gestoRef.current) {
+      document.removeEventListener("pointerdown", gestoRef.current);
+      document.removeEventListener("keydown", gestoRef.current);
+      gestoRef.current = null;
     }
+  };
+
+  /** Fala um texto marcando o estado visual de "falando". Devolve se saiu som. */
+  const dizer = async (texto: string): Promise<boolean> => {
+    setFalando(true);
+    const tocou = await falar(texto, (audio) => { saudacaoAudioRef.current = audio; });
+    saudacaoAudioRef.current = null;
+    setFalando(false);
+    return tocou;
   };
 
   // Ao abrir, a Hunters.IO se apresenta: escreve e fala, já sabendo o que falta.
@@ -217,10 +295,13 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
       oaiRef.current.push({ role: "assistant", content: texto });
 
       if (!saudacaoComVoz) return;
-      // Abertura por clique tem gesto do usuário e toca; na abertura automática
-      // o navegador pode bloquear o autoplay — aí ela só cumprimenta por escrito.
-      await falar(texto, (audio) => { saudacaoAudioRef.current = audio; });
-      saudacaoAudioRef.current = null;
+      if (!(await dizer(texto))) {
+        // Autoplay bloqueado (abertura automática, sem clique): fala no 1º gesto.
+        const noGesto = () => { void dizer(texto); };
+        gestoRef.current = noGesto;
+        document.addEventListener("pointerdown", noGesto, { once: true });
+        document.addEventListener("keydown", noGesto, { once: true });
+      }
     })();
   }, [open, uid, saudacaoComVoz]);
 
@@ -507,20 +588,20 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex h-14 items-center gap-2 rounded-full bg-gradient-to-br from-maritime-blue to-cyan-500 py-1 pl-1 pr-5 text-white shadow-xl shadow-maritime-blue/30 transition-transform hover:scale-105"
+          className="fixed bottom-6 right-6 z-50 flex h-12 items-center gap-2 rounded-full bg-gradient-to-br from-maritime-blue to-cyan-500 py-1 pl-1 pr-4 text-white shadow-lg shadow-maritime-blue/30 transition-transform hover:scale-105"
         >
-          <IOAvatar className="h-11 w-11 border-2 border-white/30" iconClass="h-5 w-5 text-white" />
-          <span className="text-sm font-semibold">Hunters.IO</span>
+          <IOAvatar className="h-10 w-10 border-2 border-white/40" iconClass="h-4 w-4 text-white" />
+          <span className="text-[13px] font-semibold">Hunters.IO</span>
         </button>
       )}
 
       {/* Backdrop mobile */}
-      {open && <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm md:hidden" onClick={() => { pararSaudacao(); stopVoice(); setOpen(false); }} />}
+      {open && <div className="fixed inset-0 z-50 bg-slate-900/25 backdrop-blur-sm md:hidden" onClick={() => { pararSaudacao(); stopVoice(); setOpen(false); }} />}
 
       {/* Drawer */}
       <aside
         className={cn(
-          "fixed right-0 top-0 z-50 flex h-[100dvh] w-full max-w-md flex-col overflow-hidden text-white shadow-2xl transition-all duration-500 ease-out",
+          "fixed right-0 top-0 z-50 flex h-[100dvh] w-full max-w-md flex-col overflow-hidden border-l border-slate-200 text-slate-800 shadow-2xl transition-all duration-500 ease-out",
           open ? "translate-x-0 opacity-100" : "translate-x-full opacity-0",
         )}
       >
@@ -528,26 +609,33 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
 
         <div className="relative z-10 flex h-full flex-col">
           {/* Header */}
-          <div className="flex shrink-0 items-center justify-between px-4 py-3.5">
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 bg-white/70 px-4 py-2.5 backdrop-blur-md">
             <div className="flex items-center gap-2.5">
-              <IOAvatar className="h-9 w-9 border border-white/20" iconClass="h-4 w-4 text-white" />
-              <div>
-                <p className="text-sm font-semibold">Hunters.IO</p>
-                <p className="text-xs text-cyan-200/70">Sua copiloto de cadastro</p>
-              </div>
+              <span className="relative">
+                <IOAvatar className="h-8 w-8 ring-1 ring-slate-200" iconClass="h-4 w-4 text-white" />
+                {falando && (
+                  <span className="absolute -inset-1 animate-ping rounded-full border border-maritime-blue/40" />
+                )}
+              </span>
+              <p className="text-sm font-semibold text-slate-900">Hunters.IO</p>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
               <button
                 type="button"
                 onClick={alternarSaudacao}
-                className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white"
+                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
                 title={saudacaoComVoz ? "Silenciar a saudação falada" : "Deixar a Hunters.IO falar ao abrir"}
                 aria-label={saudacaoComVoz ? "Silenciar a saudação falada" : "Ativar a saudação falada"}
               >
                 {saudacaoComVoz ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
               </button>
-              <button type="button" onClick={() => { pararSaudacao(); stopVoice(); setOpen(false); }} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Fechar">
-                <X className="h-5 w-5" />
+              <button
+                type="button"
+                onClick={() => { pararSaudacao(); stopVoice(); setOpen(false); }}
+                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Fechar"
+              >
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -556,33 +644,41 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-2">
             {showHero ? (
               <div className="flex min-h-full flex-col items-center justify-center py-6 text-center">
-                {/* Avatar */}
-                <div className="relative mb-5 animate-in fade-in zoom-in-95 duration-700">
-                  <span className="absolute -inset-2 rounded-full bg-cyan-400/20 blur-xl" />
-                  <span className="absolute inset-0 animate-ping rounded-full bg-cyan-400/10" />
-                  <IOAvatar className="relative h-28 w-28 border border-white/20 shadow-2xl" iconClass="h-12 w-12 text-cyan-200" />
+                {/* Avatar — pulsa enquanto ela fala */}
+                <div className="relative mb-4 animate-in fade-in zoom-in-95 duration-700">
+                  <span className="absolute -inset-3 rounded-full bg-cyan-300/25 blur-2xl" />
+                  <span
+                    className={cn(
+                      "absolute -inset-1 rounded-full border border-maritime-blue/30",
+                      falando ? "animate-ping" : "animate-pulse",
+                    )}
+                  />
+                  <IOAvatar
+                    className="relative h-24 w-24 shadow-xl ring-2 ring-white"
+                    iconClass="h-10 w-10 text-white"
+                  />
                 </div>
-                <h2 className="animate-in fade-in slide-in-from-bottom-3 text-2xl font-bold tracking-tight duration-700">Hunters.IO</h2>
-                <p className="mt-1.5 max-w-xs animate-in fade-in slide-in-from-bottom-4 text-sm text-cyan-100/70 delay-100 duration-700">
-                  {display[0]?.role === "assistant"
-                    ? display[0].content
-                    : "Me conte sobre você que eu preencho a trilha inteira — por texto ou por voz."}
+                <h2 className="animate-in fade-in slide-in-from-bottom-3 text-xl font-bold tracking-tight text-slate-900 duration-700">
+                  Hunters.IO
+                </h2>
+                <p className="mt-1.5 max-w-[17rem] animate-in fade-in slide-in-from-bottom-4 text-[13px] leading-relaxed text-slate-500 delay-100 duration-700">
+                  Me conte sobre você que eu preencho seu cadastro, por texto ou por voz
                 </p>
 
                 {/* Acesso rápido */}
-                <div className="mt-7 grid w-full grid-cols-2 gap-3">
+                <div className="mt-6 grid w-full grid-cols-2 gap-2.5">
                   {QUICK.map((q, idx) => (
                     <button
                       key={q.label}
                       type="button"
                       onClick={q.onClick}
                       style={{ animationDelay: `${150 + idx * 80}ms` }}
-                      className="group flex animate-in fade-in slide-in-from-bottom-4 flex-col items-start gap-2.5 rounded-2xl border border-white/10 bg-white/[0.06] p-3.5 text-left backdrop-blur-sm transition-all duration-500 hover:border-cyan-300/30 hover:bg-white/[0.1]"
+                      className="group flex animate-in fade-in slide-in-from-bottom-4 flex-col items-start gap-2 rounded-xl border border-slate-200 bg-white/80 p-2.5 text-left shadow-sm backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-maritime-blue/40 hover:bg-white hover:shadow-md"
                     >
-                      <span className={cn("flex h-9 w-9 items-center justify-center rounded-xl", QUICK_TONES[q.tone])}>
-                        <q.icon className="h-5 w-5" />
+                      <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg transition-transform group-hover:scale-110", QUICK_TONES[q.tone])}>
+                        <q.icon className="h-4 w-4" />
                       </span>
-                      <span className="text-sm font-medium leading-tight">{q.label}</span>
+                      <span className="text-[12.5px] font-medium leading-tight text-slate-700">{q.label}</span>
                     </button>
                   ))}
                 </div>
@@ -591,24 +687,24 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
               <div className="space-y-3 py-3">
                 {display.map((m, i) =>
                   m.role === "action" ? (
-                    <div key={i} className="mx-auto flex w-fit items-center gap-1.5 rounded-full bg-emerald-400/15 px-3 py-1.5 text-xs font-medium text-emerald-200">
+                    <div key={i} className="mx-auto flex w-fit animate-in fade-in zoom-in-95 items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 duration-300">
                       <Wand2 className="h-3 w-3" /> {m.content}
                     </div>
                   ) : (
                     <div key={i} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
                       {m.role === "assistant" && (
-                        <IOAvatar className="h-7 w-7 shrink-0 border border-white/15" iconClass="h-3.5 w-3.5 text-cyan-200" />
+                        <IOAvatar className="h-7 w-7 shrink-0 ring-1 ring-slate-200" iconClass="h-3.5 w-3.5 text-white" />
                       )}
                       <div className={cn(
-                        "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm animate-in fade-in slide-in-from-bottom-1 duration-300",
+                        "max-w-[85%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed animate-in fade-in slide-in-from-bottom-1 duration-300",
                         m.role === "user"
-                          ? "rounded-br-md bg-gradient-to-br from-maritime-blue to-cyan-500 text-white"
-                          : "rounded-bl-md border border-white/10 bg-white/10 text-cyan-50 backdrop-blur-sm",
+                          ? "rounded-br-md bg-gradient-to-br from-maritime-blue to-cyan-500 text-white shadow-sm"
+                          : "rounded-bl-md border border-slate-200 bg-white text-slate-700 shadow-sm",
                       )}>
                         {m.content}
                       </div>
                       {m.role === "user" && (
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-500/80">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-maritime-blue">
                           <User className="h-3.5 w-3.5 text-white" />
                         </div>
                       )}
@@ -616,9 +712,11 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                   ),
                 )}
                 {busy && (
-                  <div className="flex items-center gap-2 text-xs text-cyan-100/70">
-                    <IOAvatar className="h-7 w-7 border border-white/15" iconClass="h-3.5 w-3.5 text-cyan-200" />
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> preenchendo…
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <IOAvatar className="h-7 w-7 ring-1 ring-slate-200" iconClass="h-3.5 w-3.5 text-white" />
+                    <span className="flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-maritime-blue" /> preenchendo…
+                    </span>
                   </div>
                 )}
               </div>
@@ -627,13 +725,13 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
 
           {/* Barra de voz */}
           {mode === "voice" && (
-            <div className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 backdrop-blur">
-              <div className="flex min-w-0 items-center gap-2 text-sm text-cyan-50">
+            <div className="mx-3 mb-2 flex animate-in fade-in slide-in-from-bottom-2 items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 shadow-sm backdrop-blur duration-300">
+              <div className="flex min-w-0 items-center gap-2 text-[13px] text-slate-600">
                 <IOAvatar
-                  className={cn("h-8 w-8 border", voiceStatus === "live" ? "animate-pulse border-amber-300/60" : "border-white/15")}
-                  iconClass="h-4 w-4 text-cyan-200"
+                  className={cn("h-7 w-7 ring-1", voiceStatus === "live" ? "animate-pulse ring-amber-400" : "ring-slate-200")}
+                  iconClass="h-3.5 w-3.5 text-white"
                 />
-                <Waves className={cn("h-4 w-4 shrink-0", voiceStatus === "live" ? "animate-pulse text-amber-300" : "text-cyan-200/70")} />
+                <Waves className={cn("h-4 w-4 shrink-0", voiceStatus === "live" ? "animate-pulse text-amber-500" : "text-slate-400")} />
                 <span className="truncate">{voiceLabel}</span>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
@@ -641,13 +739,13 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                   <button
                     type="button"
                     onClick={fallback.submitNow}
-                    className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/25"
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
                   >
                     Terminei
                   </button>
                 )}
-                <button type="button" onClick={stopVoice} className="flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
-                  <Square className="h-3 w-3" /> Encerrar
+                <button type="button" onClick={stopVoice} className="flex items-center gap-1 rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-red-600">
+                  <Square className="h-2.5 w-2.5" /> Encerrar
                 </button>
               </div>
             </div>
@@ -656,7 +754,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
           {/* Composer */}
           <div className="relative z-10 shrink-0 p-3">
             <div className="flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.08] px-3 py-1.5 backdrop-blur">
+              <div className="flex flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2.5 py-1 shadow-sm transition-colors focus-within:border-maritime-blue/50">
                 <textarea
                   value={input}
                   onChange={(e) => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px"; }}
@@ -664,16 +762,16 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                   rows={1}
                   placeholder="Conte sobre você que eu preencho…"
                   disabled={busy}
-                  className="max-h-28 flex-1 resize-none bg-transparent py-1.5 text-sm text-white outline-none placeholder:text-cyan-100/40 disabled:opacity-60"
+                  className="max-h-28 flex-1 resize-none bg-transparent py-1.5 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
                 />
                 <button
                   type="button"
                   onClick={() => send(input)}
                   disabled={!input.trim() || busy}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-maritime-blue text-white transition-colors hover:bg-cyan-500 disabled:opacity-40"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-maritime-blue text-white transition-all hover:bg-cyan-500 disabled:opacity-30"
                   aria-label="Enviar"
                 >
-                  <Send className="h-4 w-4" />
+                  <Send className="h-3.5 w-3.5" />
                 </button>
               </div>
 
@@ -684,16 +782,16 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                 disabled={busy}
                 title="Conversar por voz (tempo real)"
                 className={cn(
-                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105",
+                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-md transition-transform hover:scale-105",
                   mode === "voice"
-                    ? "bg-red-500 text-white shadow-red-500/30"
-                    : "bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-orange-500/30",
+                    ? "bg-red-500 text-white shadow-red-500/25"
+                    : "bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-orange-500/25",
                 )}
               >
-                {mode === "voice" ? <Square className="h-5 w-5" /> : <Waves className="h-5 w-5" />}
+                {mode === "voice" ? <Square className="h-4 w-4" /> : <Waves className="h-4 w-4" />}
               </button>
             </div>
-            <p className="mt-1.5 px-1 text-center text-[10px] text-cyan-100/40">
+            <p className="mt-1.5 px-1 text-center text-[10px] text-slate-400">
               O copiloto preenche seu cadastro. Confira os dados na etapa de revisão.
             </p>
           </div>
