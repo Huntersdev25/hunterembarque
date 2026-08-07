@@ -297,10 +297,17 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
       if (!saudacaoComVoz) return;
       if (!(await dizer(texto))) {
         // Autoplay bloqueado (abertura automática, sem clique): fala no 1º gesto.
-        const noGesto = () => { void dizer(texto); };
+        // Os dois listeners saem juntos — senão o que não disparou ficaria
+        // armado e ela repetiria a saudação mais tarde.
+        const noGesto = () => {
+          document.removeEventListener("pointerdown", noGesto);
+          document.removeEventListener("keydown", noGesto);
+          gestoRef.current = null;
+          void dizer(texto);
+        };
         gestoRef.current = noGesto;
-        document.addEventListener("pointerdown", noGesto, { once: true });
-        document.addEventListener("keydown", noGesto, { once: true });
+        document.addEventListener("pointerdown", noGesto);
+        document.addEventListener("keydown", noGesto);
       }
     })();
   }, [open, uid, saudacaoComVoz]);
