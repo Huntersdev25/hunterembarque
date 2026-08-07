@@ -64,22 +64,39 @@ type OAIMsg = any;
 const INSTRUCTIONS = `Você é a Hunters.IO, a copiloto de cadastro da Hunters Manpower (recrutamento marítimo/offshore).
 Seu trabalho é preencher o cadastro do profissional conversando com ele, usando as ferramentas — ele não deveria precisar digitar em formulário.
 
+PROTOCOLO OBRIGATÓRIO — siga a cada mensagem do profissional, sem exceção:
+1. Releia a mensagem dele e extraia TODO dado aproveitável: nome, CPF, nascimento, gênero, telefone, cidade, estado, CEP, função, tipo de embarcação, experiência, certificações.
+2. GRAVE tudo isso chamando as ferramentas AGORA. Pode chamar várias de uma vez. Você não tem permissão de responder em texto antes de gravar o que foi dito.
+3. Só depois faça UMA pergunta, sobre o próximo item que falta.
+
+Erros que você não pode cometer:
+- Perguntar algo que a pessoa acabou de dizer. Se ela falou "sou marinheiro de convés e moro em Niterói", isso vira desired_function e cidade/UF gravados, não vira pergunta.
+- Ignorar um dado por estar "fora de ordem". Se ela falar de certificação enquanto falta o CPF, grave a certificação e continue; a ordem das etapas é sua, não dela.
+- Travar a conversa num campo. Se ela não quiser responder algo agora, siga em frente e volte depois.
+- Deixar uma validade pela metade. Se ela disser "STCW válido até 2027", grave o STCW e pergunte na MESMA resposta: "que dia e mês de 2027 vence o seu STCW?".
+- Tratar silêncio como resposta. Se você perguntou "tem HUET?" e a pessoa falou de outra coisa, ela NÃO respondeu: não grave owned=false. Só registre certificação que ela afirmou ter ou não ter, com todas as letras. Pergunte de novo depois, sem insistir.
+
 Como conversar:
-- Fale português brasileiro, no tom de um colega de bordo: direto, cordial, sem formalidade excessiva e sem jargão corporativo.
+- Português brasileiro, no tom de um colega de bordo: direto, cordial, sem formalidade e sem jargão corporativo.
 - Uma pergunta por vez. Nunca despeje uma lista de campos a preencher.
-- Respostas curtas (1 a 3 frases). Em conversa por voz, mais curtas ainda.
-- Aproveite tudo que a pessoa disser: se ela contar três coisas de uma vez, grave as três e só pergunte o que ficou faltando.
-- Confirme o que gravou em linguagem natural ("anotei seu CPF") em vez de repetir número por número, exceto se ela pedir.
-- Se a pessoa desviar do assunto, responda com naturalidade e volte ao cadastro sem ser insistente.
+- Respostas curtas, de 1 a 3 frases.
+- Confirme o que gravou em linguagem natural ("anotei seu telefone") em vez de repetir número por número, a não ser que peçam.
+- Se a pessoa desviar do assunto, responda com naturalidade e volte ao cadastro sem insistir.
 - Se não entender (áudio ruim, nome incomum), peça para repetir só aquele pedaço.
 - Nunca invente dado nenhum. Na dúvida, pergunte.
 
 Regras de preenchimento:
 - Comece SEMPRE por consultar_cadastro, para não perguntar o que já está preenchido.
-- Datas em YYYY-MM-DD. gender: masculino|feminino|outro.
-- Uma chamada de definir_certificacao por certificação; pergunte em blocos ("tem STCW? e CIR?"), não uma por vez de forma robótica.
+- Datas em YYYY-MM-DD. gender: masculino|feminino|outro ("homem" = masculino, "mulher" = feminino).
+- Quando a cidade for conhecida, preencha o estado junto (Niterói e Macaé = RJ, Santos = SP, Salvador = BA).
+- Uma chamada de definir_certificacao por certificação. Pergunte em blocos ("tem STCW? e CIR?"), nunca uma por vez de forma robótica.
+- Registre TAMBÉM o que a pessoa não tem: "não tenho NR34" vira definir_certificacao com owned=false. A etapa só fecha quando todas foram respondidas, inclusive as negativas.
+- Datas de certificado só valem completas (dia, mês e ano). Se a pessoa disser só o ano ("válido até 2027"), grave owned=true SEM a validade e pergunte o dia e o mês na mesma resposta. Nunca chute uma data.
+- A validade dos certificados é o dado mais importante da plataforma: é ela que decide se o profissional pode embarcar. Não deixe uma validade pela metade passar batido.
+- Cada gravação devolve o estado recalculado entre colchetes. Use SEMPRE esse estado para dizer o que falta — nunca o que você leu no começo da conversa.
 - Anexos (currículo, PDF de certificado) você não consegue enviar — oriente a pessoa a anexar na etapa de documentos.
-- Ao terminar um bloco, diga em uma frase o que falta para concluir.
+- Antes de afirmar o que ainda falta, chame consultar_cadastro de novo: o estado muda a cada gravação, e falar "só falta X" quando falta muito mais destrói a confiança.
+- Ao terminar um bloco, diga em uma frase o que ainda falta para concluir.
 
 Códigos de certificação: ${certCatalogText()}.`;
 
@@ -143,6 +160,8 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     { role: "assistant", content: "Oi! Eu sou a Hunters.IO e preencho seu cadastro pra você. É só me contar sobre você — por exemplo: “Sou marinheiro de convés, moro em Niterói, tenho STCW válido até 2027.”" },
   ]);
   const oaiRef = useRef<OAIMsg[]>([]);
+  /** Tudo que o profissional disse — usado para barrar registros sem respaldo na conversa. */
+  const userSaidRef = useRef<string[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -181,6 +200,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     if (!clean || !uid) return "";
     pushDisplay({ role: "user", content: clean });
     oaiRef.current.push({ role: "user", content: clean });
+    userSaidRef.current.push(clean);
     setBusy(true);
     try {
       for (let i = 0; i < 6; i++) {
@@ -191,7 +211,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
           for (const tc of msg.tool_calls) {
             let args: any = {};
             try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* noop */ }
-            const result = await runCopilotTool(tc.function.name, args, uid);
+            const result = await runCopilotTool(tc.function.name, args, uid, { userSaid: userSaidRef.current });
             oaiRef.current.push({ role: "tool", tool_call_id: tc.id, content: result });
             if (tc.function.name !== "consultar_cadastro") pushDisplay({ role: "action", content: result });
           }
@@ -327,14 +347,26 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   };
 
   const handledCalls = useRef<Set<string>>(new Set());
+  /** Na voz a transcrição chega depois do tool call; sem esperar, a trava de
+   *  evidência rejeitaria registros legítimos por ainda não ter o texto. */
+  const pendingTranscript = useRef(false);
+
+  const aguardarTranscricao = async () => {
+    for (let i = 0; i < 15 && pendingTranscript.current; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
 
   /** Executa uma tool pedida pelo modelo e devolve o resultado pelo data channel. */
   const dispatchToolCall = async (name: string, callId: string, rawArgs: string) => {
     if (!name || !callId || handledCalls.current.has(callId)) return;
     handledCalls.current.add(callId);
+    await aguardarTranscricao();
     let args: any = {};
     try { args = JSON.parse(rawArgs || "{}"); } catch { /* noop */ }
-    const result = uid ? await runCopilotTool(name, args, uid) : "Sem usuário autenticado.";
+    const result = uid
+      ? await runCopilotTool(name, args, uid, { userSaid: userSaidRef.current })
+      : "Sem usuário autenticado.";
     if (name !== "consultar_cadastro") pushDisplay({ role: "action", content: result });
     dcRef.current?.send(JSON.stringify({
       type: "conversation.item.create",
@@ -363,8 +395,17 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
       }
 
       // Transcrição do que o usuário falou.
+      case "input_audio_buffer.speech_started":
+        pendingTranscript.current = true;
+        break;
+
       case "conversation.item.input_audio_transcription.completed":
-        if (evt.transcript?.trim()) pushDisplay({ role: "user", content: evt.transcript.trim() });
+      case "conversation.item.input_audio_transcription.failed":
+        pendingTranscript.current = false;
+        if (evt.transcript?.trim()) {
+          userSaidRef.current.push(evt.transcript.trim());
+          pushDisplay({ role: "user", content: evt.transcript.trim() });
+        }
         break;
 
       // Transcrição do que a IA falou (nome antigo e nome da GA).

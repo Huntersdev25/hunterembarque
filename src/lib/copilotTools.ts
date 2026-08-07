@@ -160,9 +160,67 @@ const refresh = () => {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("onboarding:refresh"));
 };
 
-const isoDate = (v?: string) => (v ? brToISO(v) : null);
+/**
+ * Toda gravação devolve o estado recalculado junto do resultado.
+ *
+ * Sem isso o modelo continua raciocinando com o retrato que leu no início da
+ * conversa e afirma coisas como "só falta o CPF" quando ainda falta meio
+ * cadastro. Devolver a verdade a cada escrita é mais confiável do que pedir
+ * no prompt que ele reconsulte.
+ */
+async function comEstado(userId: string, msg: string): Promise<string> {
+  try {
+    const s = JSON.parse(await readCadastroState(userId));
+    const falta = Object.entries(s.faltando ?? {})
+      .map(([etapa, itens]) => `${etapa}: ${(itens as string[]).join(", ")}`)
+      .join(" | ");
+    return `${msg}\n[estado agora — prontidão ${s.prontidao}${falta ? `; ainda falta → ${falta}` : "; nada faltando"}]`;
+  } catch {
+    return msg;
+  }
+}
 
-export async function runCopilotTool(name: string, args: any, userId: string): Promise<string> {
+/**
+ * Só aceita data completa. O modelo às vezes manda "2027" ou "03/2027" quando a
+ * pessoa fala só o ano — gravar isso quebraria a coluna `date`, então devolvemos
+ * null e avisamos o modelo para perguntar o dia e o mês.
+ */
+const isoDate = (v?: string): string | null => {
+  if (!v) return null;
+  const iso = brToISO(String(v).trim());
+  return iso && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+};
+
+/** Contexto da conversa usado para validar o que a IA tenta gravar. */
+export interface ToolContext {
+  /** Tudo que o profissional efetivamente disse (texto digitado ou transcrito). */
+  userSaid?: string[];
+}
+
+const normalize = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * A IA presume: pergunta "tem HUET?", a pessoa fala de outra coisa e ela grava
+ * "não possui". Nenhuma instrução de prompt segurou isso de forma confiável, então
+ * exigimos evidência: a certificação precisa ter sido citada pelo próprio
+ * profissional (pela sigla, pelo nome ou pela descrição) para poder ser gravada.
+ */
+function foiCitada(certId: string, userSaid: string[]): boolean {
+  const texto = ` ${normalize(userSaid.join(" "))} `;
+  const meta = CERTIFICATIONS.find((c) => c.id === certId);
+  const termos = [certId, meta?.name ?? "", meta?.description ?? ""]
+    .map(normalize)
+    .filter((t) => t.length >= 3);
+  return termos.some((t) => texto.includes(` ${t} `));
+}
+
+export async function runCopilotTool(
+  name: string,
+  args: any,
+  userId: string,
+  ctx?: ToolContext,
+): Promise<string> {
   try {
     switch (name) {
       case "consultar_cadastro":
@@ -172,13 +230,21 @@ export async function runCopilotTool(name: string, args: any, userId: string): P
         const patch: Record<string, any> = {};
         if (args.full_name) patch.full_name = args.full_name;
         if (args.cpf) patch.cpf = String(args.cpf).replace(/\D/g, "");
-        if (args.birth_date) patch.birth_date = isoDate(args.birth_date);
         if (args.gender) patch.gender = args.gender;
         if (args.phone) patch.phone = args.phone;
+
+        let aviso = "";
+        if (args.birth_date) {
+          const d = isoDate(args.birth_date);
+          if (d) patch.birth_date = d;
+          else aviso = " A data de nascimento veio incompleta e NÃO foi gravada — pergunte o dia, o mês e o ano.";
+        }
+
+        if (!Object.keys(patch).length) return "Nada a gravar." + aviso;
         const { error } = await supabase.from("profiles").update(patch).eq("user_id", userId);
         if (error) throw error;
         refresh();
-        return "Dados pessoais atualizados: " + Object.keys(patch).join(", ");
+        return comEstado(userId, "Dados pessoais atualizados: " + Object.keys(patch).join(", ") + "." + aviso);
       }
 
       case "atualizar_endereco": {
@@ -188,7 +254,7 @@ export async function runCopilotTool(name: string, args: any, userId: string): P
         const { error } = await supabase.from("profiles").update(patch).eq("user_id", userId);
         if (error) throw error;
         refresh();
-        return "Endereço atualizado: " + Object.keys(patch).join(", ");
+        return comEstado(userId, "Endereço atualizado: " + Object.keys(patch).join(", "));
       }
 
       case "atualizar_profissional": {
@@ -207,18 +273,35 @@ export async function runCopilotTool(name: string, args: any, userId: string): P
           } else throw error;
         }
         refresh();
-        return "Perfil profissional atualizado: " + Object.keys(patch).join(", ");
+        return comEstado(userId, "Perfil profissional atualizado: " + Object.keys(patch).join(", "));
       }
 
       case "definir_certificacao": {
         const id = String(args.cert_id);
         if (!CERT_IDS.includes(id)) return `Certificação desconhecida: ${id}`;
+
+        const said = ctx?.userSaid ?? [];
+        if (said.length && !foiCitada(id, said)) {
+          const nomeCert = CERTIFICATIONS.find((c) => c.id === id)?.name ?? id;
+          return `NÃO gravei ${nomeCert}: o profissional não falou dessa certificação em momento nenhum. Você não pode registrar o que ele não respondeu — pergunte primeiro e só grave depois da resposta dele.`;
+        }
+
         const owned = !!args.owned;
         const certPatch: Record<string, any> = { user_id: userId, [id]: owned };
+        const pendentes: string[] = [];
         if (owned) {
-          if (args.issue_date) certPatch[`${id}_issue_date`] = isoDate(args.issue_date);
-          if (args.indeterminate) certPatch[`${id}_indeterminate`] = true;
-          else if (args.validity) certPatch[`${id}_validity`] = isoDate(args.validity);
+          if (args.issue_date) {
+            const d = isoDate(args.issue_date);
+            if (d) certPatch[`${id}_issue_date`] = d;
+            else pendentes.push("a data de emissão");
+          }
+          if (args.indeterminate) {
+            certPatch[`${id}_indeterminate`] = true;
+          } else if (args.validity) {
+            const d = isoDate(args.validity);
+            if (d) certPatch[`${id}_validity`] = d;
+            else pendentes.push("a validade");
+          }
         }
         const { error } = await supabase.from("certifications").upsert(certPatch as any, { onConflict: "user_id" });
         if (error) throw error;
@@ -232,7 +315,15 @@ export async function runCopilotTool(name: string, args: any, userId: string): P
 
         refresh();
         const nome = CERTIFICATIONS.find((c) => c.id === id)?.name ?? id;
-        return owned ? `Certificação ${nome} registrada como "possui".` : `Certificação ${nome} registrada como "não possui".`;
+        const base = owned
+          ? `Certificação ${nome} registrada como "possui".`
+          : `Certificação ${nome} registrada como "não possui".`;
+        return comEstado(
+          userId,
+          pendentes.length
+            ? `${base} Faltou ${pendentes.join(" e ")}: veio sem dia/mês, então NÃO foi gravada — pergunte a data completa.`
+            : base,
+        );
       }
 
       default:
