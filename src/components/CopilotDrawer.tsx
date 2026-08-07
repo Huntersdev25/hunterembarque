@@ -16,6 +16,7 @@ import {
   openAITools, realtimeTools, runCopilotTool, certCatalogText,
 } from "@/lib/copilotTools";
 import { HuntersFace } from "@/components/HuntersFace";
+import { useVoiceTurnLoop } from "@/hooks/useVoiceTurnLoop";
 import {
   Send, X, Mic, Loader2, User, Wand2, Square,
   Waves, BadgeCheck, ListChecks,
@@ -38,7 +39,12 @@ async function callCopilot(messages: any[]): Promise<any> {
       const resp = await fetch(`${SUPA_URL}/functions/v1/onboarding-copilot`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SUPA_KEY}`, apikey: SUPA_KEY },
-        body: JSON.stringify({ messages, tools: openAITools(), certCatalog: certCatalogText() }),
+        body: JSON.stringify({
+          messages,
+          tools: openAITools(),
+          certCatalog: certCatalogText(),
+          instructions: INSTRUCTIONS,
+        }),
         signal: ctrl.signal,
       });
       const data = await resp.json().catch(() => ({}));
@@ -56,11 +62,34 @@ type Display = { role: "user" | "assistant" | "action"; content: string };
 type OAIMsg = any;
 
 const INSTRUCTIONS = `Você é a Hunters.IO, a copiloto de cadastro da Hunters Manpower (recrutamento marítimo/offshore).
-Ajude o profissional a preencher o cadastro com o mínimo de esforço, usando as ferramentas para preencher os campos.
-Comece consultando o cadastro atual. Preencha o que o profissional informar e pergunte, de forma curta, só o que faltar.
-Datas em YYYY-MM-DD. gender: masculino|feminino|outro. Uma chamada de definir_certificacao por certificação.
-Anexos (currículo/PDF) você não envia — oriente o profissional a anexar. Fale português brasileiro, seja breve e amigável.
+Seu trabalho é preencher o cadastro do profissional conversando com ele, usando as ferramentas — ele não deveria precisar digitar em formulário.
+
+Como conversar:
+- Fale português brasileiro, no tom de um colega de bordo: direto, cordial, sem formalidade excessiva e sem jargão corporativo.
+- Uma pergunta por vez. Nunca despeje uma lista de campos a preencher.
+- Respostas curtas (1 a 3 frases). Em conversa por voz, mais curtas ainda.
+- Aproveite tudo que a pessoa disser: se ela contar três coisas de uma vez, grave as três e só pergunte o que ficou faltando.
+- Confirme o que gravou em linguagem natural ("anotei seu CPF") em vez de repetir número por número, exceto se ela pedir.
+- Se a pessoa desviar do assunto, responda com naturalidade e volte ao cadastro sem ser insistente.
+- Se não entender (áudio ruim, nome incomum), peça para repetir só aquele pedaço.
+- Nunca invente dado nenhum. Na dúvida, pergunte.
+
+Regras de preenchimento:
+- Comece SEMPRE por consultar_cadastro, para não perguntar o que já está preenchido.
+- Datas em YYYY-MM-DD. gender: masculino|feminino|outro.
+- Uma chamada de definir_certificacao por certificação; pergunte em blocos ("tem STCW? e CIR?"), não uma por vez de forma robótica.
+- Anexos (currículo, PDF de certificado) você não consegue enviar — oriente a pessoa a anexar na etapa de documentos.
+- Ao terminar um bloco, diga em uma frase o que falta para concluir.
+
 Códigos de certificação: ${certCatalogText()}.`;
+
+/** Realtime: mesma persona, com o ajuste de que a saída é falada. */
+const VOICE_INSTRUCTIONS = `${INSTRUCTIONS}
+
+Você está em uma conversa POR VOZ. Fale de forma natural e ritmada, como uma pessoa ao telefone.
+Frases curtas. Nada de listas numeradas, markdown, emoji ou soletrar pontuação.
+Não leia códigos técnicos de certificação em voz alta — use o nome por extenso.
+Se a pessoa te interromper, pare de falar e escute.`;
 
 /* ---------------- Fundo marítimo / offshore ---------------- */
 function MaritimeBackdrop() {
@@ -118,7 +147,8 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // voz (WebRTC)
+  // voz — "realtime" = WebRTC full-duplex; "turns" = Whisper + TTS (fallback)
+  const [engine, setEngine] = useState<"realtime" | "turns">("realtime");
   const [voiceStatus, setVoiceStatus] = useState<"idle" | "connecting" | "live" | "error">("idle");
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
@@ -144,12 +174,13 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
 
   const pushDisplay = (d: Display) => setDisplay((p) => [...p, d]);
 
-  /* ---------------- TEXTO: loop de agente ---------------- */
-  const send = async (text: string) => {
-    if (!text.trim() || busy || !uid) return;
-    pushDisplay({ role: "user", content: text.trim() });
-    oaiRef.current.push({ role: "user", content: text.trim() });
-    setInput("");
+  /* ---------------- Loop de agente (texto e voz-fallback) ---------------- */
+  /** Roda o agente a partir de uma fala/mensagem do usuário e devolve a resposta final. */
+  const runAgent = async (text: string): Promise<string> => {
+    const clean = text.trim();
+    if (!clean || !uid) return "";
+    pushDisplay({ role: "user", content: clean });
+    oaiRef.current.push({ role: "user", content: clean });
     setBusy(true);
     try {
       for (let i = 0; i < 6; i++) {
@@ -168,115 +199,214 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
         }
 
         if (msg.content) pushDisplay({ role: "assistant", content: msg.content });
-        break;
+        return msg.content || "";
       }
+      return "";
     } catch (e: any) {
       pushDisplay({ role: "assistant", content: `⚠️ ${e.message}` });
+      return "";
     } finally {
       setBusy(false);
     }
   };
 
-  /* ---------------- VOZ: OpenAI Realtime (WebRTC) ---------------- */
-  const startVoice = async () => {
-    if (!uid) return;
-    setMode("voice");
-    setVoiceStatus("connecting");
-    try {
-      const { data, error } = await supabase.functions.invoke("openai-realtime-token", {
-        body: { instructions: INSTRUCTIONS, tools: realtimeTools(), voice: "alloy" },
-      });
-      const ephemeral = data?.client_secret?.value;
-      if (error || !ephemeral) throw new Error(data?.error || "Falha ao obter acesso de voz.");
-      const model = data.model || "gpt-4o-realtime-preview";
+  const send = async (text: string) => {
+    if (!text.trim() || busy || !uid) return;
+    setInput("");
+    await runAgent(text);
+  };
 
-      const pc = new RTCPeerConnection();
-      pcRef.current = pc;
+  /* ---------------- VOZ ----------------
+   * Preferimos a Realtime API (WebRTC, full-duplex, dá para interromper).
+   * Se ela não estiver disponível na conta, caímos automaticamente no loop
+   * por turnos (Whisper + TTS), que usa o MESMO agente e as mesmas tools.
+   */
+  const fallback = useVoiceTurnLoop({
+    respond: runAgent,
+    onError: (m) => pushDisplay({ role: "assistant", content: `⚠️ Voz: ${m}` }),
+  });
 
-      if (!audioElRef.current) {
-        const el = document.createElement("audio");
-        el.autoplay = true;
-        audioElRef.current = el;
-      }
-      pc.ontrack = (e) => { if (audioElRef.current) audioElRef.current.srcObject = e.streams[0]; };
+  const startRealtime = async (): Promise<boolean> => {
+    const { data, error } = await supabase.functions.invoke("openai-realtime-token", {
+      body: { instructions: VOICE_INSTRUCTIONS, tools: realtimeTools() },
+    });
+    const ephemeral = data?.client_secret?.value;
+    if (error || !ephemeral) {
+      console.warn("Realtime indisponível:", data?.error, data?.attempts ?? error);
+      return false;
+    }
+    const isGA = data.api === "ga";
 
-      const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micRef.current = mic;
-      mic.getTracks().forEach((t) => pc.addTrack(t, mic));
+    const pc = new RTCPeerConnection();
+    pcRef.current = pc;
 
-      const dc = pc.createDataChannel("oai-events");
-      dcRef.current = dc;
-      dc.onopen = () => {
-        dc.send(JSON.stringify({
-          type: "session.update",
-          session: {
-            instructions: INSTRUCTIONS,
+    if (!audioElRef.current) {
+      const el = document.createElement("audio");
+      el.autoplay = true;
+      audioElRef.current = el;
+    }
+    pc.ontrack = (e) => { if (audioElRef.current) audioElRef.current.srcObject = e.streams[0]; };
+
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micRef.current = mic;
+    mic.getTracks().forEach((t) => pc.addTrack(t, mic));
+
+    const dc = pc.createDataChannel("oai-events");
+    dcRef.current = dc;
+    dc.onopen = () => {
+      // O formato da sessão mudou na GA: áudio passou a ser aninhado em `audio`.
+      const session = isGA
+        ? {
+            type: "realtime",
+            instructions: VOICE_INSTRUCTIONS,
+            tools: realtimeTools(),
+            tool_choice: "auto",
+            audio: {
+              input: {
+                transcription: { model: "gpt-4o-mini-transcribe", language: "pt" },
+                turn_detection: { type: "semantic_vad", interrupt_response: true },
+              },
+            },
+          }
+        : {
+            instructions: VOICE_INSTRUCTIONS,
             tools: realtimeTools(),
             tool_choice: "auto",
             turn_detection: { type: "server_vad" },
             input_audio_transcription: { model: "whisper-1" },
-          },
-        }));
-        setVoiceStatus("live");
-      };
-      dc.onmessage = (ev) => handleRealtimeEvent(ev.data);
+          };
+      dc.send(JSON.stringify({ type: "session.update", session }));
+      setVoiceStatus("live");
+    };
+    dc.onmessage = (ev) => handleRealtimeEvent(ev.data);
 
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
 
-      const sdpResp = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${ephemeral}`, "Content-Type": "application/sdp" },
-        body: offer.sdp,
-      });
-      const answer = await sdpResp.text();
-      if (!sdpResp.ok) throw new Error("Falha na conexão de voz.");
-      await pc.setRemoteDescription({ type: "answer", sdp: answer });
-    } catch (e: any) {
-      pushDisplay({ role: "assistant", content: `⚠️ Voz: ${e.message}` });
-      setVoiceStatus("error");
-      stopVoice();
+    const sdpUrl = isGA
+      ? "https://api.openai.com/v1/realtime/calls"
+      : `https://api.openai.com/v1/realtime?model=${encodeURIComponent(data.model || "gpt-4o-realtime-preview")}`;
+
+    const sdpResp = await fetch(sdpUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${ephemeral}`, "Content-Type": "application/sdp" },
+      body: offer.sdp,
+    });
+    const answer = await sdpResp.text();
+    if (!sdpResp.ok) {
+      console.warn("SDP recusado:", sdpResp.status, answer.slice(0, 300));
+      return false;
     }
+    await pc.setRemoteDescription({ type: "answer", sdp: answer });
+    return true;
+  };
+
+  const startVoice = async () => {
+    if (!uid || mode === "voice") return;
+    setMode("voice");
+    setVoiceStatus("connecting");
+    try {
+      if (await startRealtime()) return;
+    } catch (e) {
+      console.warn("Realtime falhou:", e);
+    }
+    // Realtime fora do ar: limpa o que sobrou e usa o modo por turnos.
+    closeRealtime();
+    setEngine("turns");
+    const ok = await fallback.start();
+    setVoiceStatus(ok ? "live" : "error");
+    if (!ok) setMode("text");
+  };
+
+  /** Fecha só os recursos de WebRTC (sem mexer no modo da UI). */
+  const closeRealtime = () => {
+    try { dcRef.current?.close(); } catch { /* noop */ }
+    try { pcRef.current?.close(); } catch { /* noop */ }
+    micRef.current?.getTracks().forEach((t) => t.stop());
+    dcRef.current = null; pcRef.current = null; micRef.current = null;
+  };
+
+  const handledCalls = useRef<Set<string>>(new Set());
+
+  /** Executa uma tool pedida pelo modelo e devolve o resultado pelo data channel. */
+  const dispatchToolCall = async (name: string, callId: string, rawArgs: string) => {
+    if (!name || !callId || handledCalls.current.has(callId)) return;
+    handledCalls.current.add(callId);
+    let args: any = {};
+    try { args = JSON.parse(rawArgs || "{}"); } catch { /* noop */ }
+    const result = uid ? await runCopilotTool(name, args, uid) : "Sem usuário autenticado.";
+    if (name !== "consultar_cadastro") pushDisplay({ role: "action", content: result });
+    dcRef.current?.send(JSON.stringify({
+      type: "conversation.item.create",
+      item: { type: "function_call_output", call_id: callId, output: result },
+    }));
+    dcRef.current?.send(JSON.stringify({ type: "response.create" }));
   };
 
   const handleRealtimeEvent = async (raw: string) => {
     let evt: any;
     try { evt = JSON.parse(raw); } catch { return; }
 
-    if (evt.type === "response.function_call_arguments.done") {
-      let args: any = {};
-      try { args = JSON.parse(evt.arguments || "{}"); } catch { /* noop */ }
-      const result = uid ? await runCopilotTool(evt.name, args, uid) : "Sem usuário.";
-      if (evt.name !== "consultar_cadastro") pushDisplay({ role: "action", content: result });
-      dcRef.current?.send(JSON.stringify({
-        type: "conversation.item.create",
-        item: { type: "function_call_output", call_id: evt.call_id, output: result },
-      }));
-      dcRef.current?.send(JSON.stringify({ type: "response.create" }));
-    }
-    if (evt.type === "conversation.item.input_audio_transcription.completed" && evt.transcript) {
-      pushDisplay({ role: "user", content: evt.transcript.trim() });
-    }
-    if (evt.type === "response.audio_transcript.done" && evt.transcript) {
-      pushDisplay({ role: "assistant", content: evt.transcript.trim() });
+    switch (evt.type) {
+      // Tool call — caminho principal.
+      case "response.function_call_arguments.done":
+        await dispatchToolCall(evt.name, evt.call_id, evt.arguments);
+        break;
+
+      // Rede de segurança: se o evento acima mudar de nome, ainda pegamos aqui.
+      case "response.done": {
+        const items = evt.response?.output ?? [];
+        for (const it of items) {
+          if (it?.type === "function_call") await dispatchToolCall(it.name, it.call_id, it.arguments);
+        }
+        break;
+      }
+
+      // Transcrição do que o usuário falou.
+      case "conversation.item.input_audio_transcription.completed":
+        if (evt.transcript?.trim()) pushDisplay({ role: "user", content: evt.transcript.trim() });
+        break;
+
+      // Transcrição do que a IA falou (nome antigo e nome da GA).
+      case "response.audio_transcript.done":
+      case "response.output_audio_transcript.done":
+        if (evt.transcript?.trim()) pushDisplay({ role: "assistant", content: evt.transcript.trim() });
+        break;
+
+      case "error":
+        console.warn("Realtime error:", evt.error);
+        break;
     }
   };
 
   const stopVoice = () => {
-    try { dcRef.current?.close(); } catch { /* noop */ }
-    try { pcRef.current?.close(); } catch { /* noop */ }
-    micRef.current?.getTracks().forEach((t) => t.stop());
-    dcRef.current = null; pcRef.current = null; micRef.current = null;
-    if (voiceStatus !== "error") setVoiceStatus("idle");
+    closeRealtime();
+    fallback.stop();
+    handledCalls.current.clear();
+    setVoiceStatus("idle");
+    setEngine("realtime");
     setMode("text");
   };
 
-  useEffect(() => () => stopVoice(), []); // cleanup ao desmontar
+  useEffect(() => () => { closeRealtime(); fallback.stop(); }, []); // cleanup ao desmontar
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
   if (!uid) return null;
 
   const showHero = mode === "text" && display.length <= 1;
+
+  const voiceLabel = (() => {
+    if (voiceStatus === "connecting") return "Conectando voz…";
+    if (voiceStatus === "error") return "Voz indisponível";
+    if (engine === "realtime") return voiceStatus === "live" ? "No ar — pode falar" : "Voz encerrada";
+    switch (fallback.status) {
+      case "listening": return "Ouvindo — pode falar";
+      case "thinking": return "Pensando…";
+      case "speaking": return "Respondendo…";
+      case "connecting": return "Abrindo o microfone…";
+      default: return "Voz encerrada";
+    }
+  })();
 
   const QUICK = [
     { icon: Mic, label: "Cadastrar por voz", tone: "amber", onClick: () => startVoice() },
@@ -400,17 +530,28 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
           {/* Barra de voz */}
           {mode === "voice" && (
             <div className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5 backdrop-blur">
-              <div className="flex items-center gap-2 text-sm text-cyan-50">
+              <div className="flex min-w-0 items-center gap-2 text-sm text-cyan-50">
                 <IOAvatar
                   className={cn("h-8 w-8 border", voiceStatus === "live" ? "animate-pulse border-amber-300/60" : "border-white/15")}
                   iconClass="h-4 w-4 text-cyan-200"
                 />
-                <Waves className={cn("h-4 w-4", voiceStatus === "live" ? "animate-pulse text-amber-300" : "text-cyan-200/70")} />
-                {voiceStatus === "connecting" ? "Conectando voz…" : voiceStatus === "live" ? "No ar — pode falar" : "Voz encerrada"}
+                <Waves className={cn("h-4 w-4 shrink-0", voiceStatus === "live" ? "animate-pulse text-amber-300" : "text-cyan-200/70")} />
+                <span className="truncate">{voiceLabel}</span>
               </div>
-              <button type="button" onClick={stopVoice} className="flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
-                <Square className="h-3 w-3" /> Encerrar
-              </button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {engine === "turns" && fallback.status === "listening" && (
+                  <button
+                    type="button"
+                    onClick={fallback.submitNow}
+                    className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/25"
+                  >
+                    Terminei
+                  </button>
+                )}
+                <button type="button" onClick={stopVoice} className="flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
+                  <Square className="h-3 w-3" /> Encerrar
+                </button>
+              </div>
             </div>
           )}
 

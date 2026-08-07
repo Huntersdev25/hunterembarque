@@ -15,10 +15,12 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API");
     if (!OPENAI_API_KEY) return json({ error: "OPENAI_API não configurado." }, 500);
 
-    const { messages, tools, certCatalog } = await req.json();
-    const model = Deno.env.get("OPENAI_COPILOT_MODEL") ?? "gpt-4o-mini";
+    const { messages, tools, certCatalog, instructions } = await req.json();
+    const model = Deno.env.get("OPENAI_COPILOT_MODEL") ?? "gpt-4o";
 
-    const systemPrompt = `Você é o Copiloto de Cadastro da Hunters Manpower, recrutamento marítimo/offshore.
+    // A persona canônica é a que o cliente envia (mesma usada no modo voz);
+    // o texto abaixo é só a rede de segurança para chamadas sem `instructions`.
+    const systemPrompt = instructions || `Você é a Hunters.IO, copiloto de cadastro da Hunters Manpower, recrutamento marítimo/offshore.
 Seu trabalho é PREENCHER o cadastro do profissional para ele, com o mínimo de esforço da parte dele.
 
 Como agir:
@@ -36,7 +38,9 @@ Como agir:
       messages: [{ role: "system", content: systemPrompt }, ...(messages || [])],
       tools: tools && tools.length ? tools : undefined,
       tool_choice: "auto" as const,
-      temperature: 0.2,
+      // Alto o bastante para soar como conversa, baixo o bastante para não
+      // inventar dado nenhum na hora de chamar as tools.
+      temperature: 0.6,
     };
 
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
