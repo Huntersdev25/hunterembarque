@@ -16,7 +16,7 @@ import {
   openAITools, realtimeTools, runCopilotTool, certCatalogText,
 } from "@/lib/copilotTools";
 import {
-  Sparkles, Send, X, Mic, Loader2, User, Wand2, Square,
+  Send, X, Mic, Loader2, User, Wand2, Square,
   Anchor, Waves, BadgeCheck, ListChecks,
 } from "lucide-react";
 
@@ -54,7 +54,7 @@ async function callCopilot(messages: any[]): Promise<any> {
 type Display = { role: "user" | "assistant" | "action"; content: string };
 type OAIMsg = any;
 
-const INSTRUCTIONS = `Você é o Copiloto de Cadastro da Hunters Manpower (recrutamento marítimo/offshore).
+const INSTRUCTIONS = `Você é a Hunters.IO, a copiloto de cadastro da Hunters Manpower (recrutamento marítimo/offshore).
 Ajude o profissional a preencher o cadastro com o mínimo de esforço, usando as ferramentas para preencher os campos.
 Comece consultando o cadastro atual. Preencha o que o profissional informar e pergunte, de forma curta, só o que faltar.
 Datas em YYYY-MM-DD. gender: masculino|feminino|outro. Uma chamada de definir_certificacao por certificação.
@@ -94,6 +94,26 @@ function MaritimeBackdrop() {
   );
 }
 
+/** Avatar da Hunters.IO (imagem em public/hunters-io.png; fallback p/ ícone). */
+function IOAvatar({ className, iconClass }: { className?: string; iconClass?: string }) {
+  const [ok, setOk] = useState(true);
+  if (ok) {
+    return (
+      <img
+        src="/hunters-io.png"
+        alt="Hunters.IO"
+        onError={() => setOk(false)}
+        className={cn("rounded-full object-cover", className)}
+      />
+    );
+  }
+  return (
+    <div className={cn("flex items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-maritime-blue", className)}>
+      <Anchor className={iconClass} />
+    </div>
+  );
+}
+
 const QUICK_TONES: Record<string, string> = {
   amber: "bg-amber-400/15 text-amber-200",
   cyan: "bg-cyan-400/15 text-cyan-200",
@@ -107,7 +127,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   const [mode, setMode] = useState<"text" | "voice">("text");
 
   const [display, setDisplay] = useState<Display[]>([
-    { role: "assistant", content: "Oi! Eu preencho seu cadastro pra você. É só me contar sobre você — por exemplo: “Sou marinheiro de convés, moro em Niterói, tenho STCW válido até 2027.”" },
+    { role: "assistant", content: "Oi! Eu sou a Hunters.IO e preencho seu cadastro pra você. É só me contar sobre você — por exemplo: “Sou marinheiro de convés, moro em Niterói, tenho STCW válido até 2027.”" },
   ]);
   const oaiRef = useRef<OAIMsg[]>([]);
   const [input, setInput] = useState("");
@@ -288,10 +308,10 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex h-14 items-center gap-2 rounded-full bg-gradient-to-br from-maritime-blue to-cyan-500 px-5 text-white shadow-xl shadow-maritime-blue/30 transition-transform hover:scale-105"
+          className="fixed bottom-6 right-6 z-50 flex h-14 items-center gap-2 rounded-full bg-gradient-to-br from-maritime-blue to-cyan-500 py-1 pl-1 pr-5 text-white shadow-xl shadow-maritime-blue/30 transition-transform hover:scale-105"
         >
-          <Wand2 className="h-5 w-5" />
-          <span className="text-sm font-semibold">Copiloto</span>
+          <IOAvatar className="h-11 w-11 border-2 border-white/30" iconClass="h-5 w-5 text-white" />
+          <span className="text-sm font-semibold">Hunters.IO</span>
         </button>
       )}
 
@@ -311,12 +331,10 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between px-4 py-3.5">
             <div className="flex items-center gap-2.5">
-              <div className="relative flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-maritime-blue">
-                <Sparkles className="h-4 w-4 text-white" />
-              </div>
+              <IOAvatar className="h-9 w-9 border border-white/20" iconClass="h-4 w-4 text-white" />
               <div>
-                <p className="text-sm font-semibold">Copiloto de Cadastro</p>
-                <p className="text-xs text-cyan-200/70">Eu preencho pra você</p>
+                <p className="text-sm font-semibold">Hunters.IO</p>
+                <p className="text-xs text-cyan-200/70">Sua copiloto de cadastro</p>
               </div>
             </div>
             <button type="button" onClick={() => { stopVoice(); setOpen(false); }} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Fechar">
@@ -332,11 +350,9 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                 <div className="relative mb-5 animate-in fade-in zoom-in-95 duration-700">
                   <span className="absolute -inset-2 rounded-full bg-cyan-400/20 blur-xl" />
                   <span className="absolute inset-0 animate-ping rounded-full bg-cyan-400/10" />
-                  <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-white/20 bg-gradient-to-br from-[#12414f] to-[#0a2733] shadow-2xl">
-                    <Anchor className="h-11 w-11 text-cyan-200" />
-                  </div>
+                  <IOAvatar className="relative h-28 w-28 border border-white/20 shadow-2xl" iconClass="h-12 w-12 text-cyan-200" />
                 </div>
-                <h2 className="animate-in fade-in slide-in-from-bottom-3 text-2xl font-bold tracking-tight duration-700">Copiloto de Cadastro</h2>
+                <h2 className="animate-in fade-in slide-in-from-bottom-3 text-2xl font-bold tracking-tight duration-700">Hunters.IO</h2>
                 <p className="mt-1.5 max-w-xs animate-in fade-in slide-in-from-bottom-4 text-sm text-cyan-100/70 delay-100 duration-700">
                   Me conte sobre você que eu preencho a trilha inteira — por texto ou por voz.
                 </p>
@@ -369,9 +385,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                   ) : (
                     <div key={i} className={cn("flex gap-2", m.role === "user" ? "justify-end" : "justify-start")}>
                       {m.role === "assistant" && (
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cyan-400/15">
-                          <Sparkles className="h-3.5 w-3.5 text-cyan-200" />
-                        </div>
+                        <IOAvatar className="h-7 w-7 shrink-0 border border-white/15" iconClass="h-3.5 w-3.5 text-cyan-200" />
                       )}
                       <div className={cn(
                         "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm animate-in fade-in slide-in-from-bottom-1 duration-300",
