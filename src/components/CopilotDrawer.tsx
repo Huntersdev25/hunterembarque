@@ -17,7 +17,7 @@ import {
 } from "@/lib/copilotTools";
 import { HuntersFace } from "@/components/HuntersFace";
 import { useVoiceTurnLoop } from "@/hooks/useVoiceTurnLoop";
-import { falar, calar, destravarAudio, VOZ } from "@/lib/speak";
+import { falar, calar, destravarAudio, VOZ, VOZ_HABILITADA } from "@/lib/speak";
 import {
   Send, X, Mic, Loader2, User, Wand2, Square,
   Waves, BadgeCheck, ListChecks, Volume2, VolumeX,
@@ -298,7 +298,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
       setDisplay([{ role: "assistant", content: texto }]);
       oaiRef.current.push({ role: "assistant", content: texto });
 
-      if (!saudacaoComVoz) return;
+      if (!VOZ_HABILITADA || !saudacaoComVoz) return;
       if (!(await dizer(texto))) {
         // Autoplay bloqueado (abertura automática, sem clique): fala no 1º gesto.
         // Os dois listeners saem juntos — senão o que não disparou ficaria
@@ -477,7 +477,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   };
 
   const startVoice = async () => {
-    if (!uid || mode === "voice") return;
+    if (!VOZ_HABILITADA || !uid || mode === "voice") return;
     destravarAudio(); // precisa ser aqui: dentro do gesto, antes de qualquer await
     pararSaudacao();
     setMode("voice");
@@ -615,7 +615,9 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   })();
 
   const QUICK = [
-    { icon: Mic, label: "Cadastrar por voz", tone: "amber", onClick: () => startVoice() },
+    ...(VOZ_HABILITADA
+      ? [{ icon: Mic, label: "Cadastrar por voz", tone: "amber", onClick: () => startVoice() }]
+      : [{ icon: Wand2, label: "Cadastre pra mim", tone: "amber", onClick: () => send("Quero que você preencha meu cadastro.") }]),
     { icon: User, label: "Preencher meus dados", tone: "cyan", onClick: () => send("Quero preencher meus dados pessoais.") },
     { icon: BadgeCheck, label: "Minhas certificações", tone: "emerald", onClick: () => send("Vamos cadastrar minhas certificações.") },
     { icon: ListChecks, label: "O que falta?", tone: "blue", onClick: () => send("O que falta para concluir meu cadastro?") },
@@ -660,15 +662,17 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
               <p className="text-sm font-semibold text-slate-900">Hunters.IO</p>
             </div>
             <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={alternarSaudacao}
-                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                title={saudacaoComVoz ? "Silenciar a saudação falada" : "Deixar a Hunters.IO falar ao abrir"}
-                aria-label={saudacaoComVoz ? "Silenciar a saudação falada" : "Ativar a saudação falada"}
-              >
-                {saudacaoComVoz ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-              </button>
+              {VOZ_HABILITADA && (
+                <button
+                  type="button"
+                  onClick={alternarSaudacao}
+                  className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                  title={saudacaoComVoz ? "Silenciar a saudação falada" : "Deixar a Hunters.IO falar ao abrir"}
+                  aria-label={saudacaoComVoz ? "Silenciar a saudação falada" : "Ativar a saudação falada"}
+                >
+                  {saudacaoComVoz ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { pararSaudacao(); stopVoice(); setOpen(false); }}
@@ -822,21 +826,23 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
                 </button>
               </div>
 
-              {/* Botão de voz (tempo real) */}
-              <button
-                type="button"
-                onClick={() => (mode === "voice" ? stopVoice() : startVoice())}
-                disabled={busy}
-                title="Conversar por voz (tempo real)"
-                className={cn(
-                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-md transition-transform hover:scale-105",
-                  mode === "voice"
-                    ? "bg-red-500 text-white shadow-red-500/25"
-                    : "bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-orange-500/25",
-                )}
-              >
-                {mode === "voice" ? <Square className="h-4 w-4" /> : <Waves className="h-4 w-4" />}
-              </button>
+              {/* Botão de voz (tempo real) — oculto enquanto a voz está desligada */}
+              {VOZ_HABILITADA && (
+                <button
+                  type="button"
+                  onClick={() => (mode === "voice" ? stopVoice() : startVoice())}
+                  disabled={busy}
+                  title="Conversar por voz (tempo real)"
+                  className={cn(
+                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-md transition-transform hover:scale-105",
+                    mode === "voice"
+                      ? "bg-red-500 text-white shadow-red-500/25"
+                      : "bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-orange-500/25",
+                  )}
+                >
+                  {mode === "voice" ? <Square className="h-4 w-4" /> : <Waves className="h-4 w-4" />}
+                </button>
+              )}
             </div>
             <p className="mt-1.5 px-1 text-center text-[10px] text-slate-400">
               O copiloto preenche seu cadastro. Confira os dados na etapa de revisão.

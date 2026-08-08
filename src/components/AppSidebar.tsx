@@ -184,7 +184,6 @@ export const AppSidebar = memo(function AppSidebar({ userType, darkMode = false 
   };
 
   const candidateNavigation: NavItem[] = [
-    { name: "Assistente IA", href: "/dashboard", icon: Bot },
     { name: "Painel", href: "/painel", icon: LayoutDashboard },
     { name: "Vagas", href: "/jobs", icon: Briefcase },
     { name: "Meu Perfil", href: "/profile", icon: User },

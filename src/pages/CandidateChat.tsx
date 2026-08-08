@@ -20,7 +20,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Send, User, LayoutDashboard, Loader2, Plus, Mic, Wand2 } from "lucide-react";
 import { VoiceConversation } from "@/components/VoiceConversation";
-import { destravarAudio } from "@/lib/speak";
+import { destravarAudio, VOZ_HABILITADA } from "@/lib/speak";
 import { HuntersFace } from "@/components/HuntersFace";
 import { openAITools, runCopilotTool, certCatalogText } from "@/lib/copilotTools";
 
@@ -415,17 +415,19 @@ export default function CandidateChat() {
         {/* Input (igual ao admin) */}
         <div className="shrink-0 border-t bg-background p-4">
           <div className="mx-auto flex max-w-3xl gap-2">
-            <Button
-              onClick={() => { destravarAudio(); setVoiceOpen(true); }}
-              disabled={isLoading}
-              size="icon"
-              variant="outline"
-              title="Conversar por voz"
-              aria-label="Conversar por voz"
-              className="shrink-0 border-maritime-blue/30 text-maritime-blue hover:bg-maritime-blue/10"
-            >
-              <Mic className="h-4 w-4" />
-            </Button>
+            {VOZ_HABILITADA && (
+              <Button
+                onClick={() => { destravarAudio(); setVoiceOpen(true); }}
+                disabled={isLoading}
+                size="icon"
+                variant="outline"
+                title="Conversar por voz"
+                aria-label="Conversar por voz"
+                className="shrink-0 border-maritime-blue/30 text-maritime-blue hover:bg-maritime-blue/10"
+              >
+                <Mic className="h-4 w-4" />
+              </Button>
+            )}
             <Input
               ref={inputRef}
               value={input}
@@ -450,13 +452,15 @@ export default function CandidateChat() {
         </div>
       </div>
 
-      <VoiceConversation
-        open={voiceOpen}
-        onClose={() => setVoiceOpen(false)}
-        getHistory={() => messagesRef.current}
-        onExchange={onVoiceExchange}
-        askAI={askAI}
-      />
+      {VOZ_HABILITADA && (
+        <VoiceConversation
+          open={voiceOpen}
+          onClose={() => setVoiceOpen(false)}
+          getHistory={() => messagesRef.current}
+          onExchange={onVoiceExchange}
+          askAI={askAI}
+        />
+      )}
     </DashboardLayout>
   );
 }

@@ -8,6 +8,15 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 
+/**
+ * Chave geral da voz da Hunters.IO.
+ *
+ * Desligada enquanto o timbre não estiver bom: com `false`, some o botão de
+ * voz, a saudação falada e o modo de conversa por áudio — a implementação
+ * inteira continua aqui, é só voltar para `true` para reativar tudo.
+ */
+export const VOZ_HABILITADA = false;
+
 type Provedor = "openai-tts" | "elevenlabs-tts" | "onboarding-copilot";
 
 /**
@@ -124,6 +133,7 @@ export async function falar(
   texto: string,
   onStart?: (audio: HTMLAudioElement) => void,
 ): Promise<boolean> {
+  if (!VOZ_HABILITADA) return false;
   const limpo = texto?.trim();
   if (!limpo) return false;
 
