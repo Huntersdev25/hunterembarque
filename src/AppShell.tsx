@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { SecurityProvider } from "@/components/SecurityProvider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -18,7 +18,6 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const SecureCreateAdmin = lazy(() => import("./pages/SecureCreateAdmin"));
 const Onboarding = lazy(() => import("./pages/Onboarding"));
 const CandidateDashboard = lazy(() => import("./pages/CandidateDashboard"));
-const CandidateChat = lazy(() => import("./pages/CandidateChat"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const AdminJobs = lazy(() => import("./pages/AdminJobs"));
 const AdminCandidates = lazy(() => import("./pages/AdminCandidates"));
@@ -111,9 +110,9 @@ export default function AppShell() {
                     <Route path="/create-first-ti" element={<CreateFirstTIUser />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/cadastro" element={<ProtectedRoute skipOnboardingGate><Onboarding /></ProtectedRoute>} />
-                    <Route path="/candidate" element={<ProtectedRoute><CandidateChat /></ProtectedRoute>} />
-                    <Route path="/dashboard" element={<ProtectedRoute><CandidateChat /></ProtectedRoute>} />
-                    <Route path="/painel" element={<ProtectedRoute><CandidateDashboard /></ProtectedRoute>} />
+                    <Route path="/candidate" element={<ProtectedRoute><CandidateDashboard /></ProtectedRoute>} />
+                    <Route path="/dashboard" element={<ProtectedRoute><CandidateDashboard /></ProtectedRoute>} />
+                    <Route path="/painel" element={<Navigate to="/dashboard" replace />} />
                     <Route path="/profile" element={<ProtectedRoute><CandidateProfile /></ProtectedRoute>} />
                     <Route path="/settings" element={<ProtectedRoute><CandidateSettings /></ProtectedRoute>} />
                     <Route path="/applications" element={<ProtectedRoute><CandidateApplications /></ProtectedRoute>} />
