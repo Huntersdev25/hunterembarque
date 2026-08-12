@@ -16,11 +16,17 @@ import {
   openAITools, realtimeTools, runCopilotTool, certCatalogText, buildGreeting,
 } from "@/lib/copilotTools";
 import { HuntersFace } from "@/components/HuntersFace";
+import { VoiceOrb, type OrbState } from "@/components/VoiceOrb";
 import { useVoiceTurnLoop } from "@/hooks/useVoiceTurnLoop";
-import { falar, calar, destravarAudio, VOZ, VOZ_HABILITADA } from "@/lib/speak";
+import { useSimliAvatar } from "@/hooks/useSimliAvatar";
+import { medirStream, medirElemento, type Medidor } from "@/lib/audioLevel";
+import {
+  falar, calar, destravarAudio, destravarElemento, elementoDeAudio, VOZ_HABILITADA,
+  AVATAR_HABILITADO, VOZES, VOZES_REALTIME, vozAtual, definirVoz, type VozId,
+} from "@/lib/speak";
 import {
   Send, X, Mic, Loader2, User, Wand2, Square,
-  Waves, BadgeCheck, ListChecks, Volume2, VolumeX,
+  Waves, BadgeCheck, ListChecks, Volume2, VolumeX, AudioLines, Play,
 } from "lucide-react";
 
 /* Fallback p/ produção (VITE_* podem não estar no build da Vercel). */
@@ -101,15 +107,41 @@ Regras de preenchimento:
 
 Códigos de certificação: ${certCatalogText()}.`;
 
-/** Realtime: mesma persona, com o ajuste de que a saída é falada. */
+/**
+ * Realtime: mesma persona, com as seções de direção de fala que o guia de
+ * prompting da OpenAI recomenda. A voz (`cedar`) entrega a prosódia; é este
+ * bloco que decide se ela soa como gente ou como locutor de URA.
+ */
 const VOICE_INSTRUCTIONS = `${INSTRUCTIONS}
 
-Você está em uma conversa POR VOZ e VOCÊ FALA: tudo que você escrever é convertido em áudio e o profissional vai OUVIR.
+## Personalidade e tom
+Você está em uma conversa POR VOZ e VOCÊ FALA: tudo que você diz vira áudio e o profissional vai OUVIR.
 Nunca diga que não consegue falar, que não tem voz ou que só funciona por texto — isso é falso. Se perguntarem se você fala, responda que sim e continue a conversa.
-Fale de forma natural e ritmada, como uma pessoa ao telefone. Frases curtas, no máximo duas por resposta.
-Nada de listas numeradas, markdown, emoji ou soletrar pontuação — nada disso existe quando se ouve.
-Não leia códigos técnicos de certificação em voz alta: use o nome por extenso.
-Se a pessoa te interromper, pare de falar e escute.`;
+Você é uma colega de trabalho brasileira, na faixa dos trinta, que conhece o setor marítimo e gosta de resolver. Calorosa e direta, nunca bajuladora, nunca formal demais.
+
+## Ritmo
+Fale rápido, como quem conversa de verdade, mas sem soar apressada.
+No máximo duas frases por resposta. Se precisar de mais, pergunte antes se pode explicar.
+Use as pausas naturais da fala. Pode hesitar de leve quando estiver consultando algo ("deixa eu ver aqui…", "peraí que eu confiro") em vez de ficar muda enquanto usa uma ferramenta.
+
+## Variedade
+Não repita a mesma frase duas vezes na conversa. Varie confirmações e aberturas para não soar robótica.
+Confirmações possíveis, entre outras: "anotei", "beleza", "isso", "certo", "pode deixar". NÃO use sempre estas — invente outras no mesmo tom.
+Nada de listas numeradas, markdown, emoji ou pontuação soletrada: nada disso existe quando se ouve.
+
+## Idioma
+A conversa é só em português brasileiro, sotaque neutro. Não mude de idioma nem se pedirem.
+
+## Como pronunciar
+Não leia código técnico de certificação em voz alta: use o nome por extenso ("STCW" vira "ésse-tê-cê-dáblio" só se a pessoa perguntar pela sigla; prefira "curso básico de segurança").
+Número de documento, CPF e telefone: leia dígito por dígito, pausando a cada grupo.
+Data: por extenso ("doze de março de dois mil e vinte e sete"), nunca "12/03/2027".
+
+## Áudio ruim
+Se o áudio vier cortado, com ruído ou você não tiver certeza do que ouviu, NÃO adivinhe: peça para repetir só o pedaço que faltou. Nome próprio e número você sempre repete de volta para confirmar.
+
+## Interrupção
+Se a pessoa começar a falar por cima, pare na hora e escute. Não termine a frase.`;
 
 /* ---------------- Fundo claro, marítimo, com movimento ---------------- */
 
@@ -240,11 +272,32 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   const micRef = useRef<MediaStream | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
 
+  /* --- orbe da conversa por voz ---
+   * De quem é o turno agora. No tempo real vem dos eventos da sessão; no
+   * fallback por turnos é derivado do `fallback.status` (ver `orbEstado`).
+   */
+  const [orbRealtime, setOrbRealtime] = useState<OrbState>("conectando");
+  /** Medidores de amplitude que alimentam a orbe. */
+  const medidorIA = useRef<Medidor | null>(null);
+  const medidorMic = useRef<Medidor | null>(null);
+  /** Espelho do estado da orbe, lido dentro do rAF (que não re-renderiza). */
+  const orbEstadoRef = useRef<OrbState>("conectando");
+
+  /** Avatar com lip-sync. Quando sobe, é ele quem toca o som da conversa. */
+  const avatar = useSimliAvatar();
+
+  /** Autoplay recusado: mostra um botão para o usuário liberar o som. */
+  const [audioBloqueado, setAudioBloqueado] = useState(false);
+  const [voz, setVoz] = useState<VozId>(() => vozAtual());
+  const [seletorVozAberto, setSeletorVozAberto] = useState(false);
+
   // Saudação falada ao abrir — o usuário pode silenciar, e a escolha persiste.
   const [saudacaoComVoz, setSaudacaoComVoz] = useState(() => {
     try { return localStorage.getItem("hunters-io-saudacao") !== "muda"; } catch { return true; }
   });
   const jaSaudou = useRef(false);
+  /** Saudação escrita na abertura — a sessão de voz retoma daqui, sem repeti-la. */
+  const saudacaoRef = useRef("");
   const saudacaoAudioRef = useRef<HTMLAudioElement | null>(null);
   const [falando, setFalando] = useState(false);
 
@@ -288,13 +341,19 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     return tocou;
   };
 
-  // Ao abrir, a Hunters.IO se apresenta: escreve e fala, já sabendo o que falta.
+  /**
+   * Ao abrir, a Hunters.IO se apresenta: escreve e fala (TTS gpt-4o-mini-tts).
+   *
+   * O texto fica em `saudacaoRef` para a sessão de voz retomar dali sem repetir
+   * a apresentação inteira.
+   */
   useEffect(() => {
     if (!open || !uid || jaSaudou.current) return;
     jaSaudou.current = true;
 
     (async () => {
       const texto = await buildGreeting(uid);
+      saudacaoRef.current = texto;
       setDisplay([{ role: "assistant", content: texto }]);
       oaiRef.current.push({ role: "assistant", content: texto });
 
@@ -315,6 +374,26 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
       }
     })();
   }, [open, uid, saudacaoComVoz]);
+
+  /**
+   * Troca a voz. No TTS vale na próxima fala; na conversa ao vivo a voz é
+   * fixada na abertura da sessão, então reabrimos para ouvir a nova.
+   */
+  const trocarVoz = async (id: VozId) => {
+    definirVoz(id);
+    setVoz(id);
+    setSeletorVozAberto(false);
+    if (mode === "voice") {
+      closeRealtime();
+      fallback.stop();
+      setVoiceStatus("connecting");
+      setMode("text");
+      // O setMode acima destrava o guard do startVoice.
+      setTimeout(() => { void startVoice(); }, 0);
+    } else {
+      void dizer(`Pronto, agora eu falo com a voz ${VOZES.find((v) => v.id === id)?.nome}.`);
+    }
+  };
 
   const alternarSaudacao = () => {
     setSaudacaoComVoz((v) => {
@@ -385,10 +464,90 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     onError: (m) => pushDisplay({ role: "assistant", content: `⚠️ Voz: ${m}` }),
   });
 
+  /**
+   * Amplitude que a orbe desenha. Chamada uma vez por frame, então lê tudo de
+   * ref: quando é a vez do profissional, mede o microfone; no resto, a voz dela.
+   */
+  const nivelDaOrbe = () => {
+    const m = orbEstadoRef.current === "ouvindo" ? medidorMic.current : medidorIA.current;
+    return m?.nivel() ?? 0;
+  };
+
+  const soltarMedidores = () => {
+    medidorIA.current?.parar();
+    medidorMic.current?.parar();
+    medidorIA.current = null;
+    medidorMic.current = null;
+  };
+
+  /**
+   * Cria (uma vez) o elemento que toca a voz do WebRTC.
+   *
+   * Chamado DENTRO do clique em "Cadastrar por voz", justamente para destravar
+   * o autoplay enquanto o gesto do usuário ainda vale. Sem isso o `play()` do
+   * `ontrack` acontecia segundos depois, já fora do gesto, e o navegador
+   * bloqueava: a resposta chegava e não saía som nenhum.
+   */
+  const prepararAudio = (): HTMLAudioElement => {
+    let el = audioElRef.current;
+    if (!el) {
+      el = document.createElement("audio");
+      el.autoplay = true;
+      (el as any).playsInline = true;
+      el.style.display = "none";
+      // Precisa estar no documento: elemento solto não toca de forma
+      // confiável em vários navegadores, e a voz sumia sem erro nenhum.
+      document.body.appendChild(el);
+      audioElRef.current = el;
+    }
+    return el;
+  };
+
+  /**
+   * Troca o SDP com a OpenAI e devolve a resposta (ou null, com o motivo já
+   * registrado). Tenta pelo servidor e, se a function não estiver publicada,
+   * cai no POST direto do navegador — que é o caminho da doc.
+   */
+  const trocarSDP = async (offerSdp: string, token: string, model?: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.functions.invoke("openai-realtime-sdp", {
+        body: { sdp: offerSdp, token, ...(model ? { model } : {}) },
+      });
+      if (!error && data?.sdp) return data.sdp as string;
+      console.warn("[voz] SDP pelo servidor falhou:", data?.error || error?.message, data?.detail ?? "");
+      if (data?.error) { setMotivoFallback(`SDP: ${data.error}`); return null; }
+    } catch (e: any) {
+      console.warn("[voz] edge function de SDP indisponível:", e?.message);
+    }
+
+    // A function pode não estar publicada neste ambiente: tenta direto.
+    try {
+      const url = model
+        ? `https://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`
+        : "https://api.openai.com/v1/realtime/calls";
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/sdp" },
+        body: offerSdp,
+      });
+      const texto = await resp.text();
+      if (resp.ok) return texto;
+      console.warn("[voz] SDP recusado:", resp.status, texto.slice(0, 300));
+      setMotivoFallback(`SDP ${resp.status}`);
+    } catch (e: any) {
+      // "Failed to fetch" aqui = o navegador não alcança a OpenAI.
+      console.warn("[voz] SDP direto bloqueado:", e?.message);
+      setMotivoFallback("navegador bloqueou o acesso à OpenAI");
+    }
+    return null;
+  };
+
   const startRealtime = async (): Promise<boolean> => {
     const { data, error } = await supabase.functions.invoke("openai-realtime-token", {
-      // A voz vai explícita para o timbre bater com o da saudação falada.
-      body: { instructions: VOICE_INSTRUCTIONS, tools: realtimeTools(), voice: VOZ },
+      // Se o usuário escolheu uma voz de TTS, a Realtime recusa e a edge
+      // function cai em cedar sozinha — a conversa ao vivo nunca fica muda
+      // por causa da escolha do seletor.
+      body: { instructions: VOICE_INSTRUCTIONS, tools: realtimeTools(), voice: voz },
     });
     const ephemeral = data?.client_secret?.value;
     if (error || !ephemeral) {
@@ -402,27 +561,58 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     const pc = new RTCPeerConnection();
     pcRef.current = pc;
 
-    if (!audioElRef.current) {
-      const el = document.createElement("audio");
-      el.autoplay = true;
-      (el as any).playsInline = true;
-      el.style.display = "none";
-      // Precisa estar no documento: elemento solto não toca de forma
-      // confiável em vários navegadores, e a voz sumia sem erro nenhum.
-      document.body.appendChild(el);
-      audioElRef.current = el;
-    }
     pc.ontrack = (e) => {
-      const el = audioElRef.current;
-      if (!el) return;
+      // O elemento já foi criado e destravado no clique (ver prepararAudio).
+      const el = prepararAudio();
+      // O WAV vazio do destravamento continua no `src`; sem tirar, alguns
+      // navegadores ignoram o srcObject e tocam silêncio.
+      el.removeAttribute("src");
       el.srcObject = e.streams[0];
-      // autoplay sozinho não basta; o play explícito acontece dentro do
-      // gesto do clique no botão de voz, então o navegador libera.
-      el.play().catch((err) => console.warn("Áudio da voz bloqueado:", err));
+      el.muted = false;
+      el.volume = 1;
+      console.info("[voz] track de áudio recebido da OpenAI");
+
+      // A orbe ondula a partir deste stream. Se o navegador não alimentar o
+      // Web Audio com áudio de WebRTC, ela cai na pulsação sintética sozinha.
+      // Continua valendo enquanto o avatar sobe — e é o que aparece se ele não subir.
+      medidorIA.current?.parar();
+      medidorIA.current = medirStream(e.streams[0]);
+
+      /*
+       * Avatar com lip-sync: entregamos o MESMO track ao Simli, que devolve
+       * vídeo e áudio sincronizados.
+       *
+       * Se ele subir, este elemento aqui precisa emudecer na hora — os dois
+       * tocando juntos fazem o profissional ouvir cada frase duas vezes, com
+       * o atraso do processamento entre elas. Se não subir, nada muda: o áudio
+       * direto continua tocando e a chamada segue na orbe.
+       */
+      if (AVATAR_HABILITADO) {
+        void avatar.iniciar(e.track).then((subiu) => {
+          if (subiu) {
+            el.muted = true;
+            console.info("[voz] avatar no ar — áudio direto mutado");
+          }
+        });
+      }
+
+      // O play pode ser recusado se o navegador não considerar o clique como
+      // gesto válido. Antes isso morria num warn e parecia "ela não fala":
+      // agora aparece um botão para o usuário liberar o som.
+      const tentarTocar = () => el.play()
+        .then(() => { setAudioBloqueado(false); console.info("[voz] áudio tocando"); })
+        .catch((err) => {
+          console.warn("[voz] play recusado:", err?.name || err);
+          setAudioBloqueado(true);
+        });
+      el.onloadedmetadata = tentarTocar;
+      void tentarTocar();
     };
 
     const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
     micRef.current = mic;
+    medidorMic.current?.parar();
+    medidorMic.current = medirStream(mic);
     mic.getTracks().forEach((t) => pc.addTrack(t, mic));
 
     const dc = pc.createDataChannel("oai-events");
@@ -435,53 +625,77 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
             instructions: VOICE_INSTRUCTIONS,
             tools: realtimeTools(),
             tool_choice: "auto",
+            // `output_modalities` e a voz PRECISAM ser repetidos aqui. O
+            // session.update reescreve a configuração da sessão, e sem estes
+            // campos ela volta ao padrão de texto: conecta, transcreve o que
+            // você fala, responde por escrito e não sai áudio nenhum.
+            output_modalities: ["audio"],
             audio: {
               input: {
                 transcription: { model: "gpt-4o-mini-transcribe", language: "pt" },
                 turn_detection: { type: "semantic_vad", interrupt_response: true },
               },
+              output: { voice: data.voice || "cedar" },
             },
           }
         : {
             instructions: VOICE_INSTRUCTIONS,
             tools: realtimeTools(),
             tool_choice: "auto",
+            modalities: ["audio", "text"],
+            voice: data.voice || "cedar",
             turn_detection: { type: "server_vad" },
             input_audio_transcription: { model: "whisper-1" },
           };
       dc.send(JSON.stringify({ type: "session.update", session }));
       setVoiceStatus("live");
+      // Ela abre a conversa falando (ver o pedirResposta logo abaixo).
+      setOrbRealtime("falando");
+
+      /*
+       * Ela abre a conversa falando, em vez de esperar o profissional começar.
+       * É esta a saudação em voz — pela `cedar`, dentro da sessão, e não por
+       * TTS. Como o texto já está escrito na tela, ela retoma dali em vez de
+       * se apresentar de novo.
+       */
+      const jaEscrita = saudacaoRef.current.trim();
+      pedirResposta(jaEscrita
+        ? `Cumprimente o profissional em voz alta agora, em uma frase curta e calorosa, e siga direto para a próxima pergunta do cadastro. Ele JÁ LEU esta mensagem sua na tela, então não a repita: "${jaEscrita}"`
+        : "Cumprimente o profissional em voz alta agora, em uma frase curta, diga que vai preencher o cadastro conversando e faça a primeira pergunta.");
     };
     dc.onmessage = (ev) => handleRealtimeEvent(ev.data);
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
-    const sdpUrl = isGA
-      ? "https://api.openai.com/v1/realtime/calls"
-      : `https://api.openai.com/v1/realtime?model=${encodeURIComponent(data.model || "gpt-4o-realtime-preview")}`;
+    /*
+     * A troca de SDP vai pelo servidor (edge function `openai-realtime-sdp`).
+     *
+     * O POST direto do navegador para api.openai.com é o caminho da doc e o
+     * CORS de lá permite, mas aqui ele morria com "Failed to fetch" — o erro
+     * genérico de quando uma extensão, antivírus ou proxy derruba a conexão
+     * antes de sair. Pelo Supabase a requisição parte de um domínio que a
+     * aplicação já usa, e um erro real chega com status em vez de opaco.
+     */
+    const modelParam = isGA ? undefined : (data.model || "gpt-4o-realtime-preview");
+    const answer = await trocarSDP(offer.sdp || "", ephemeral, modelParam);
+    if (!answer) return false;
 
-    const sdpResp = await fetch(sdpUrl, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${ephemeral}`, "Content-Type": "application/sdp" },
-      body: offer.sdp,
-    });
-    const answer = await sdpResp.text();
-    if (!sdpResp.ok) {
-      console.warn("SDP recusado:", sdpResp.status, answer.slice(0, 300));
-      setMotivoFallback(`SDP ${sdpResp.status}`);
-      return false;
-    }
     await pc.setRemoteDescription({ type: "answer", sdp: answer });
     return true;
   };
 
   const startVoice = async () => {
     if (!VOZ_HABILITADA || !uid || mode === "voice") return;
-    destravarAudio(); // precisa ser aqui: dentro do gesto, antes de qualquer await
+    // Os dois destravamentos precisam ser aqui: dentro do gesto do clique,
+    // antes de qualquer await. O primeiro libera o áudio do TTS; o segundo
+    // libera o elemento que vai tocar a voz do WebRTC lá na frente.
+    destravarAudio();
+    destravarElemento(prepararAudio());
     pararSaudacao();
     setMode("voice");
     setVoiceStatus("connecting");
+    setOrbRealtime("conectando");
     try {
       if (await startRealtime()) return;
     } catch (e: any) {
@@ -490,10 +704,20 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     }
     // Realtime fora do ar: limpa o que sobrou e usa o modo por turnos.
     closeRealtime();
+    soltarMedidores();
     setEngine("turns");
     const ok = await fallback.start();
     setVoiceStatus(ok ? "live" : "error");
-    if (!ok) setMode("text");
+    if (!ok) { setMode("text"); return; }
+
+    /*
+     * No fallback a fala sai pelo elemento do TTS, e é dele que a orbe tira a
+     * amplitude. Medir aqui, e não antes, é proposital: `medirElemento` desvia
+     * o áudio pelo Web Audio, e num AudioContext ainda suspenso isso emudeceria
+     * o TTS. Neste ponto ainda estamos dentro do clique do usuário.
+     */
+    medidorIA.current = medirElemento(elementoDeAudio());
+    medidorMic.current = medirStream(fallback.micStream());
   };
 
   /** Fecha só os recursos de WebRTC (sem mexer no modo da UI). */
@@ -502,7 +726,32 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
     try { pcRef.current?.close(); } catch { /* noop */ }
     micRef.current?.getTracks().forEach((t) => t.stop());
     dcRef.current = null; pcRef.current = null; micRef.current = null;
+    // A sessão do Simli é cobrada por minuto: deixar de fechar aqui queimaria
+    // saldo com o drawer já encerrado.
+    avatar.parar();
+    // O áudio direto foi mutado quando o avatar subiu; devolvemos o som para o
+    // caso da próxima sessão cair na orbe.
+    if (audioElRef.current) audioElRef.current.muted = false;
   };
+
+  /**
+   * Pede uma resposta ao modelo SEMPRE declarando saída em áudio.
+   *
+   * Toda `response.create` precisa passar por aqui. Uma delas ia "pelada"
+   * depois de cada tool call e, como a Hunters.IO chama tools a cada turno, a
+   * conversa inteira virava texto a partir da primeira chamada — ela ouvia e
+   * respondia por escrito, sem áudio nenhum.
+   */
+  const pedirResposta = (instructions?: string) => {
+    audioDoTurno.current = false;
+    dcRef.current?.send(JSON.stringify({
+      type: "response.create",
+      response: { output_modalities: ["audio"], ...(instructions ? { instructions } : {}) },
+    }));
+  };
+
+  /** Chegou áudio neste turno? Distingue "modelo mudo" de "áudio não tocou". */
+  const audioDoTurno = useRef(false);
 
   const handledCalls = useRef<Set<string>>(new Set());
   /** Na voz a transcrição chega depois do tool call; sem esperar, a trava de
@@ -519,6 +768,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   const dispatchToolCall = async (name: string, callId: string, rawArgs: string) => {
     if (!name || !callId || handledCalls.current.has(callId)) return;
     handledCalls.current.add(callId);
+    setOrbRealtime("pensando");
     await aguardarTranscricao();
     let args: any = {};
     try { args = JSON.parse(rawArgs || "{}"); } catch { /* noop */ }
@@ -530,8 +780,16 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
       type: "conversation.item.create",
       item: { type: "function_call_output", call_id: callId, output: result },
     }));
-    dcRef.current?.send(JSON.stringify({ type: "response.create" }));
+    pedirResposta();
   };
+
+  /** Texto de uma resposta da Realtime, seja ela de texto ou transcrição de áudio. */
+  const textoDaResposta = (response: any): string =>
+    (response?.output ?? [])
+      .flatMap((it: any) => it?.content ?? [])
+      .map((c: any) => c?.text || c?.transcript || "")
+      .join(" ")
+      .trim();
 
   const handleRealtimeEvent = async (raw: string) => {
     let evt: any;
@@ -543,18 +801,51 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
         await dispatchToolCall(evt.name, evt.call_id, evt.arguments);
         break;
 
+      // Marca que veio áudio neste turno (nome antigo e nome da GA).
+      case "response.audio.delta":
+      case "response.output_audio.delta":
+        audioDoTurno.current = true;
+        setOrbRealtime("falando");
+        break;
+
       // Rede de segurança: se o evento acima mudar de nome, ainda pegamos aqui.
       case "response.done": {
         const items = evt.response?.output ?? [];
         for (const it of items) {
           if (it?.type === "function_call") await dispatchToolCall(it.name, it.call_id, it.arguments);
         }
+        /*
+         * Respondeu por escrito em vez de falar.
+         *
+         * Não basta avisar: em modo de voz a resposta TEM que sair em áudio.
+         * Então lemos o texto dela pelo TTS. Não é o timbre da voz-a-voz, mas
+         * é infinitamente melhor que uma resposta muda — e o console registra
+         * para sabermos que a sessão caiu de modalidade.
+         */
+        const soTool = items.length > 0 && items.every((it: any) => it?.type === "function_call");
+        if (!audioDoTurno.current && !soTool && items.length > 0) {
+          const mods = evt.response?.output_modalities ?? evt.response?.modalities;
+          console.warn("[voz] resposta sem áudio, lendo por TTS. modalities:", mods);
+          const texto = textoDaResposta(evt.response);
+          if (texto) void dizer(texto);
+        }
+        // Turno só de tool call não devolve a palavra a ninguém: a resposta
+        // falada ainda vem depois, então a orbe segue em "pensando".
+        if (!soTool) setOrbRealtime("ouvindo");
         break;
       }
 
       // Transcrição do que o usuário falou.
       case "input_audio_buffer.speech_started":
         pendingTranscript.current = true;
+        setOrbRealtime("ouvindo");
+        /*
+         * A OpenAI para de gerar quando o profissional fala por cima
+         * (semantic_vad + interrupt_response), mas o áudio que já saiu está na
+         * fila do Simli — sem isto o avatar terminaria a frase sozinho, falando
+         * por cima de quem o interrompeu.
+         */
+        avatar.interromper();
         break;
 
       case "conversation.item.input_audio_transcription.completed":
@@ -572,17 +863,33 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
         if (evt.transcript?.trim()) pushDisplay({ role: "assistant", content: evt.transcript.trim() });
         break;
 
-      case "error":
-        console.warn("Realtime error:", evt.error);
+      // Resposta que veio como TEXTO. Sem estes casos ela aparecia no chat
+      // apenas se tivesse virado áudio — o texto puro sumia sem rastro.
+      case "response.text.done":
+      case "response.output_text.done":
+        if (evt.text?.trim()) pushDisplay({ role: "assistant", content: evt.text.trim() });
         break;
+
+      // Um parâmetro recusado (voz inexistente, campo fora de formato) chega
+      // como `error` e a sessão segue muda. Antes isso morria num console.warn
+      // e parecia que "simplesmente não falava" — agora aparece no chat.
+      case "error": {
+        const e = evt.error ?? {};
+        console.warn("Realtime error:", e);
+        setOrbRealtime("erro");
+        pushDisplay({ role: "assistant", content: `⚠️ Voz: ${e.message || e.code || "erro na sessão"}` });
+        break;
+      }
     }
   };
 
   const stopVoice = () => {
     closeRealtime();
     fallback.stop();
+    soltarMedidores();
     handledCalls.current.clear();
     setVoiceStatus("idle");
+    setOrbRealtime("conectando");
     setEngine("realtime");
     setMotivoFallback(null);
     setMode("text");
@@ -591,6 +898,7 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   useEffect(() => () => {
     closeRealtime();
     fallback.stop();
+    soltarMedidores();
     pararSaudacao();
     audioElRef.current?.remove();
     audioElRef.current = null;
@@ -600,6 +908,27 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
   if (!uid) return null;
 
   const showHero = mode === "text" && display.length <= 1;
+
+  /** Chamada em curso: a tela vira orbe e o chat some até encerrar. */
+  const emChamada = mode === "voice" && voiceStatus !== "idle";
+
+  /**
+   * Estado visual da orbe. No tempo real vem dos eventos da sessão; no fallback
+   * por turnos o `fallback.status` já diz exatamente a mesma coisa.
+   */
+  const orbEstado: OrbState = (() => {
+    if (voiceStatus === "error") return "erro";
+    if (voiceStatus === "connecting") return "conectando";
+    if (engine === "realtime") return orbRealtime;
+    switch (fallback.status) {
+      case "listening": return "ouvindo";
+      case "thinking":  return "pensando";
+      case "speaking":  return "falando";
+      case "error":     return "erro";
+      default:          return "conectando";
+    }
+  })();
+  orbEstadoRef.current = orbEstado;
 
   const voiceLabel = (() => {
     if (voiceStatus === "connecting") return "Conectando voz…";
@@ -663,6 +992,64 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
             </div>
             <div className="flex items-center gap-0.5">
               {VOZ_HABILITADA && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setSeletorVozAberto((v) => !v)}
+                    className="flex items-center gap-1 rounded-full px-2 py-1.5 text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                    title="Trocar a voz da Hunters.IO"
+                    aria-haspopup="listbox"
+                    aria-expanded={seletorVozAberto}
+                  >
+                    <AudioLines className="h-4 w-4" />
+                    {VOZES.find((v) => v.id === voz)?.nome ?? voz}
+                  </button>
+
+                  {seletorVozAberto && (
+                    <>
+                      {/* Clique fora fecha */}
+                      <div className="fixed inset-0 z-10" onClick={() => setSeletorVozAberto(false)} />
+                      <ul
+                        role="listbox"
+                        className="absolute right-0 z-20 mt-1 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+                      >
+                        {VOZES.map((v) => {
+                          const aoVivo = VOZES_REALTIME.includes(v.id);
+                          return (
+                            <li key={v.id}>
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={v.id === voz}
+                                onClick={() => void trocarVoz(v.id)}
+                                className={cn(
+                                  "flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-slate-50",
+                                  v.id === voz && "bg-maritime-blue/5",
+                                )}
+                              >
+                                <span className={cn(
+                                  "mt-1 h-1.5 w-1.5 shrink-0 rounded-full",
+                                  aoVivo ? "bg-emerald-500" : "bg-slate-300",
+                                )} />
+                                <span className="min-w-0">
+                                  <span className="block text-[13px] font-medium text-slate-800">{v.nome}</span>
+                                  <span className="block text-[11px] text-slate-500">{v.nota}</span>
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                        <li className="border-t border-slate-100 px-3 py-2 text-[10px] leading-snug text-slate-400">
+                          <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
+                          Só estas funcionam na conversa ao vivo. As demais valem
+                          para a saudação e o ditado; ao vivo, a Cedar assume.
+                        </li>
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
+              {VOZ_HABILITADA && (
                 <button
                   type="button"
                   onClick={alternarSaudacao}
@@ -686,7 +1073,117 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
 
           {/* Corpo */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-2">
-            {showHero ? (
+            {emChamada ? (
+              /* --- Chamada por voz ---
+               * Nada de transcrição ao vivo: só a orbe, o estado e a prova de
+               * que o cadastro anda (os selos de campo gravado). A conversa
+               * inteira já está em `display` e reaparece escrita ao encerrar.
+               */
+              <div className="flex min-h-full flex-col items-center justify-center py-6 text-center">
+                {/*
+                  * O vídeo e o áudio do avatar ficam SEMPRE montados: o hook
+                  * precisa dos refs já preenchidos quando o track da OpenAI
+                  * chega, e renderizar condicionalmente deixaria os dois nulos
+                  * justamente na hora de subir a sessão. Quem esconde é o CSS.
+                  */}
+                <div className="relative flex h-[220px] w-[220px] animate-in fade-in zoom-in-95 items-center justify-center duration-500">
+                  <video
+                    ref={avatar.videoRef}
+                    autoPlay
+                    playsInline
+                    muted={false}
+                    className={cn(
+                      "absolute inset-0 h-full w-full rounded-full object-cover shadow-xl ring-2 ring-white transition-opacity duration-500",
+                      avatar.status === "live" ? "opacity-100" : "pointer-events-none opacity-0",
+                    )}
+                  />
+                  <audio ref={avatar.audioRef} autoPlay className="hidden" />
+
+                  {/* Enquanto o avatar não sobe (ou não vai subir), é a orbe. */}
+                  {avatar.status !== "live" && (
+                    <VoiceOrb estado={orbEstado} nivel={nivelDaOrbe} tamanho={220} />
+                  )}
+                </div>
+
+                <p
+                  className="mt-2 text-sm font-medium text-slate-700"
+                  aria-live="polite"
+                >
+                  {voiceLabel}
+                </p>
+                {engine === "turns" && motivoFallback && (
+                  <p className="mt-0.5 text-[10px] text-slate-400">
+                    tempo real indisponível ({motivoFallback})
+                  </p>
+                )}
+                {AVATAR_HABILITADO && avatar.status === "error" && (
+                  <p className="mt-0.5 text-[10px] text-slate-400">
+                    avatar indisponível ({avatar.motivo() || "erro"}) — seguindo só por voz
+                  </p>
+                )}
+
+                {/* Selos de campo gravado — só os últimos, para não virar lista */}
+                <div className="mt-5 flex min-h-[4.5rem] w-full flex-col items-center gap-1.5">
+                  {display
+                    .filter((m) => m.role === "action")
+                    .slice(-3)
+                    .map((m, i, arr) => (
+                      <div
+                        key={`${i}-${m.content}`}
+                        style={{ opacity: 0.45 + (0.55 * (i + 1)) / arr.length }}
+                        className="flex w-fit animate-in fade-in slide-in-from-bottom-2 items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 duration-300"
+                      >
+                        <Wand2 className="h-3 w-3 shrink-0" /> {m.content}
+                      </div>
+                    ))}
+                </div>
+
+                <div className="mt-6 flex flex-col items-center gap-2">
+                  {/* O navegador recusou tocar o áudio: um clique resolve, mas
+                      tem que ser do usuário — por isso um botão, e não um retry. */}
+                  {audioBloqueado && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Com o avatar no ar quem toca é a mídia do Simli; sem
+                        // ele, o elemento do áudio direto. Destrava os dois: só
+                        // um vai estar ativo, e errar aqui deixaria a chamada muda.
+                        void avatar.videoRef.current?.play().catch(() => { /* noop */ });
+                        void avatar.audioRef.current?.play().catch(() => { /* noop */ });
+                        audioElRef.current?.play()
+                          .then(() => setAudioBloqueado(false))
+                          .catch((e) => console.warn("[voz] play ainda recusado:", e));
+                        if (avatar.status === "live") setAudioBloqueado(false);
+                      }}
+                      className="flex items-center gap-1.5 rounded-full bg-amber-500 px-4 py-2 text-[12px] font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
+                    >
+                      <Play className="h-3 w-3" /> Ouvir a Hunters.IO
+                    </button>
+                  )}
+
+                  {engine === "turns" && fallback.status === "listening" && (
+                    <button
+                      type="button"
+                      onClick={fallback.submitNow}
+                      className="rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-[12px] font-semibold text-slate-600 shadow-sm transition-colors hover:bg-white"
+                    >
+                      Terminei de falar
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={stopVoice}
+                    className="flex items-center gap-2 rounded-full bg-red-500 px-5 py-2.5 text-[13px] font-semibold text-white shadow-lg shadow-red-500/25 transition-transform hover:scale-105"
+                  >
+                    <Square className="h-3.5 w-3.5" /> Encerrar
+                  </button>
+                  <p className="max-w-[15rem] text-[10px] leading-relaxed text-slate-400">
+                    Ao encerrar, a conversa aparece escrita aqui para você conferir.
+                  </p>
+                </div>
+              </div>
+            ) : showHero ? (
               <div className="flex min-h-full flex-col items-center justify-center py-6 text-center">
                 {/* Avatar — pulsa enquanto ela fala */}
                 <div className="relative mb-4 animate-in fade-in zoom-in-95 duration-700">
@@ -767,43 +1264,8 @@ export function CopilotDrawer({ autoOpen = false }: { autoOpen?: boolean }) {
             )}
           </div>
 
-          {/* Barra de voz */}
-          {mode === "voice" && (
-            <div className="mx-3 mb-2 flex animate-in fade-in slide-in-from-bottom-2 items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white/85 px-2.5 py-2 shadow-sm backdrop-blur duration-300">
-              <div className="flex min-w-0 items-center gap-2 text-[13px] text-slate-600">
-                <IOAvatar
-                  className={cn("h-7 w-7 ring-1", voiceStatus === "live" ? "animate-pulse ring-amber-400" : "ring-slate-200")}
-                  iconClass="h-3.5 w-3.5 text-white"
-                />
-                <Waves className={cn("h-4 w-4 shrink-0", voiceStatus === "live" ? "animate-pulse text-amber-500" : "text-slate-400")} />
-                <span className="min-w-0">
-                  <span className="block truncate">{voiceLabel}</span>
-                  {engine === "turns" && motivoFallback && (
-                    <span className="block truncate text-[10px] text-slate-400">
-                      tempo real indisponível ({motivoFallback})
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {engine === "turns" && fallback.status === "listening" && (
-                  <button
-                    type="button"
-                    onClick={fallback.submitNow}
-                    className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
-                  >
-                    Terminei
-                  </button>
-                )}
-                <button type="button" onClick={stopVoice} className="flex items-center gap-1 rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-red-600">
-                  <Square className="h-2.5 w-2.5" /> Encerrar
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Composer */}
-          <div className="relative z-10 shrink-0 p-3">
+          {/* Composer — escondido na chamada: lá quem manda é a orbe */}
+          <div className={cn("relative z-10 shrink-0 p-3", emChamada && "hidden")}>
             <div className="flex items-center gap-2">
               <div className="flex flex-1 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2.5 py-1 shadow-sm transition-colors focus-within:border-maritime-blue/50">
                 <textarea

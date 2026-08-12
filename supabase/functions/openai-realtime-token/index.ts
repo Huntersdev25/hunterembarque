@@ -33,10 +33,19 @@ serve(async (req) => {
     const wantedVoice: string = body?.voice || Deno.env.get("OPENAI_REALTIME_VOICE") || "";
 
     const envModel = Deno.env.get("OPENAI_REALTIME_MODEL");
-    const gaModels = envModel ? [envModel] : ["gpt-realtime", "gpt-realtime-2.1"];
-    // `ash` é a mesma voz usada no TTS, para o timbre não mudar entre a
-    // saudação falada e a conversa em tempo real.
-    const gaVoices = wantedVoice ? [wantedVoice, "ash", "alloy"] : ["ash", "alloy"];
+    // Do mais novo para o mais antigo: o -2.1 raciocina melhor e é o que a
+    // OpenAI recomenda hoje para agentes de voz.
+    const gaModels = envModel ? [envModel] : ["gpt-realtime-2.1", "gpt-realtime-2", "gpt-realtime"];
+
+    /**
+     * `cedar` e `marin` só existem na Realtime API e são as únicas com prosódia
+     * de verdade — pausas, respiração, hesitação. As vozes antigas (echo, ash,
+     * alloy) vieram do TTS e são justamente as que soam robóticas; ficam só
+     * como último recurso, para a conversa não morrer se a conta não tiver
+     * acesso às novas.
+     */
+    const dedup = (v: string[]) => [...new Set(v.filter(Boolean))];
+    const gaVoices = dedup([wantedVoice, "cedar", "marin", "alloy"]);
 
     const auth = { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" };
     const attempts: string[] = [];

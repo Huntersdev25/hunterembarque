@@ -16,14 +16,15 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API");
     if (!OPENAI_API_KEY) return json({ success: false, error: "OPENAI_API não configurado." });
 
-    const { text, voice, instructions } = await req.json();
+    const { text, voice, instructions, model: modelFromBody } = await req.json();
     if (!text || typeof text !== "string" || !text.trim())
       return json({ success: false, error: "Texto não fornecido." });
 
-    // tts-1 + echo é a combinação que o usuário validou no n8n: soa bem mais
-    // natural em português do que o gpt-4o-mini-tts que estava aqui.
-    const model = Deno.env.get("OPENAI_TTS_MODEL") ?? "tts-1";
-    const selectedVoice = voice || Deno.env.get("OPENAI_TTS_VOICE") || "echo";
+    // gpt-4o-mini-tts é o TTS dirigível: diferente do tts-1, ele obedece ao
+    // campo `instructions`, e é daí que sai a diferença de naturalidade — a voz
+    // sozinha (alloy) é a mesma de sempre.
+    const model = modelFromBody || Deno.env.get("OPENAI_TTS_MODEL") || "gpt-4o-mini-tts";
+    const selectedVoice = voice || Deno.env.get("OPENAI_TTS_VOICE") || "alloy";
 
     // Direção de interpretação só existe nos modelos gpt-4o-*; o tts-1 rejeita.
     const aceitaEstilo = model.startsWith("gpt-4o");

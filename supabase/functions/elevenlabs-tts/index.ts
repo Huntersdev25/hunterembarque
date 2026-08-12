@@ -32,8 +32,10 @@ serve(async (req) => {
     // Truncate to 5000 chars max
     const truncatedText = text.slice(0, 5000);
 
-    // Use Laura voice (Portuguese-friendly) by default
-    const selectedVoice = voiceId || "FGY2WhTYpPnrIDTdsKH5";
+    // Laura (multilíngue, aceitável em português) é só o padrão. Trocar por uma
+    // voz nativa de pt-BR da voice-library é o maior ganho de naturalidade que
+    // sobrou — basta setar ELEVENLABS_VOICE_ID, sem mexer no código.
+    const selectedVoice = voiceId || Deno.env.get("ELEVENLABS_VOICE_ID") || "FGY2WhTYpPnrIDTdsKH5";
 
     const response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${selectedVoice}?output_format=mp3_44100_128`,
@@ -46,10 +48,14 @@ serve(async (req) => {
         body: JSON.stringify({
           text: truncatedText,
           model_id: "eleven_multilingual_v2",
+          // Stability mais baixa = mais variação de entonação entre as frases.
+          // É contraintuitivo, mas é o que tira o "lendo em voz alta": com 0.5
+          // cada frase saía com a mesma curva melódica, e é isso que o ouvido
+          // reconhece como robô. Style mais alto acentua a expressividade.
           voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-            style: 0.3,
+            stability: 0.4,
+            similarity_boost: 0.8,
+            style: 0.45,
             use_speaker_boost: true,
             speed: 1.0,
           },

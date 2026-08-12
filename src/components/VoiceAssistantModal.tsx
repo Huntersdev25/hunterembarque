@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useScribe, CommitStrategy } from "@elevenlabs/react";
 import { supabase } from "@/integrations/supabase/client";
+import { falar, calar } from "@/lib/speak";
 import { 
   Mic, 
   MicOff, 
@@ -54,7 +55,7 @@ export function VoiceAssistantModal({
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   
-  const synthRef = useRef<SpeechSynthesis | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // ElevenLabs Scribe hook
   const scribe = useScribe({
@@ -95,31 +96,18 @@ export function VoiceAssistantModal({
     }
   };
 
-  // Inicializar Speech Synthesis para instruções
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      synthRef.current = window.speechSynthesis;
-    }
+  // Cala a instrução em andamento ao desmontar.
+  useEffect(() => () => { calar(audioRef.current); audioRef.current = null; }, []);
 
-    return () => {
-      if (synthRef.current) {
-        synthRef.current.cancel();
-      }
-    };
-  }, []);
-
-  // Falar instrução do campo atual
+  /**
+   * Fala a instrução do campo atual pelo TTS da Hunters.IO (gpt-4o-mini-tts).
+   * Antes saía pelo speechSynthesis do navegador, que destoava de tudo.
+   */
   const speakInstruction = useCallback((text: string) => {
-    if (synthRef.current) {
-      synthRef.current.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'pt-BR';
-      utterance.rate = 1.0;
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-      synthRef.current.speak(utterance);
-    }
+    calar(audioRef.current);
+    setIsSpeaking(true);
+    void falar(text, (audio) => { audioRef.current = audio; })
+      .finally(() => { audioRef.current = null; setIsSpeaking(false); });
   }, []);
 
   // Quando mudar de campo, falar a instrução
@@ -150,9 +138,8 @@ export function VoiceAssistantModal({
         scribe.disconnect();
       }
       
-      if (synthRef.current) {
-        synthRef.current.cancel();
-      }
+      calar(audioRef.current);
+      audioRef.current = null;
     }
   }, [open]);
 

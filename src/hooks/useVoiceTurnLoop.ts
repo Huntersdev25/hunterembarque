@@ -1,15 +1,17 @@
 /**
  * Conversa por voz em turnos (fallback quando a Realtime API não está disponível).
  *
- * grava (MediaRecorder) → detecta silêncio (Web Audio) → transcreve (openai-transcribe)
- * → `respond()` → fala a resposta (openai-tts) → volta a gravar.
+ * grava (MediaRecorder) → detecta silêncio (Web Audio) → transcreve
+ * (openai-transcribe) → `respond()` → fala a resposta (TTS) → volta a gravar.
  *
- * Diferente da Realtime API não há interrupção no meio da fala, mas a conversa
- * é contínua e hands-free, e usa exatamente o mesmo agente (com as tools).
+ * Diferente da Realtime API não há interrupção no meio da fala, e o timbre é o
+ * do TTS e não o da voz-para-voz; em compensação a conversa é contínua e
+ * hands-free, com o mesmo agente e as mesmas tools.
  */
 import { useCallback, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { falar } from "@/lib/speak";
+import { rmsDe } from "@/lib/audioLevel";
 
 export type VoiceLoopStatus = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "error";
 
@@ -73,9 +75,7 @@ export function useVoiceTurnLoop({ respond, onUserText, onError }: Options) {
     const tick = () => {
       if (statusRef.current !== "listening" || stoppingRef.current) return;
       analyser.getByteTimeDomainData(buf);
-      let sum = 0;
-      for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
-      const rms = Math.sqrt(sum / buf.length);
+      const rms = rmsDe(buf);
       const now = performance.now();
 
       if (rms > SPEECH_RMS) {
@@ -196,5 +196,8 @@ export function useVoiceTurnLoop({ respond, onUserText, onError }: Options) {
     try { if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop(); } catch { /* noop */ }
   }, []);
 
-  return { status, start, stop, submitNow };
+  /** Stream do microfone, para quem quiser medir a amplitude (orbe da voz). */
+  const micStream = useCallback(() => streamRef.current, []);
+
+  return { status, start, stop, submitNow, micStream };
 }
